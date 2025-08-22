@@ -73,6 +73,36 @@ This automatically uses:
 - Speed performance mode
 - Frame skipping optimization
 
+### 🏭 Conveyor Belt Mode (Production Line Synchronization)
+
+**NEW!** If your detection isn't matching conveyor belt speed, use the specialized conveyor mode:
+
+```bash
+# Quick conveyor belt setup
+./start_conveyor_detection.sh
+
+# Or manual conveyor mode
+python raspberry_milk_detector.py --conveyor-mode --conveyor-width 0.5
+```
+
+**Conveyor Belt Features:**
+- **Auto-speed detection** from object movement
+- **Adaptive frame processing** to match production line speed
+- **Real-time synchronization** with conveyor belt
+- **Automatic calibration** for optimal performance
+- **Production line mode** for industrial applications
+
+**Calibration Tool:**
+```bash
+python calibrate_conveyor.py
+```
+
+This helps you:
+- Position camera correctly above conveyor
+- Set proper conveyor dimensions
+- Calculate optimal detection parameters
+- Generate recommended startup commands
+
 ### Basic Detection
 
 Start the milk detector with default settings:
@@ -237,124 +267,48 @@ If you're getting only 0.8 FPS instead of real-time:
    python raspberry_milk_detector.py --use-picamera2
    ```
 
+### 🏭 Conveyor Belt Synchronization Issues
+If your detection isn't matching conveyor belt speed:
+
+1. **Enable Conveyor Mode**:
+   ```bash
+   python raspberry_milk_detector.py --conveyor-mode --conveyor-width 0.5
+   ```
+
+2. **Use Auto-Speed Detection**:
+   - Let the system run for 1-2 minutes to learn conveyor speed
+   - System automatically adjusts frame processing to match speed
+
+3. **Manual Speed Setting**:
+   ```bash
+   python raspberry_milk_detector.py --conveyor-mode --conveyor-speed 1.5
+   ```
+
+4. **Calibrate Camera Position**:
+   ```bash
+   python calibrate_conveyor.py
+   ```
+
+5. **Check Detection Coverage**:
+   - Ensure camera covers full conveyor width
+   - Position camera directly above conveyor center
+   - Adjust camera height for optimal coverage
+
+6. **Runtime Controls**:
+   - Press 'c' to toggle conveyor mode on/off
+   - Press 'v' to manually set conveyor speed
+   - Press '1/2/3' to adjust frame processing frequency
+
+7. **Production Line Optimization**:
+   ```bash
+   # For high-speed production lines
+   python raspberry_milk_detector.py --conveyor-mode --performance-mode speed --target-fps 25
+   
+   # For medium-speed lines
+   python raspberry_milk_detector.py --conveyor-mode --performance-mode balanced --target-fps 20
+   
+   # For low-speed lines
+   python raspberry_milk_detector.py --conveyor-mode --performance-mode quality --target-fps 15
+   ```
+
 ### Memory Issues
-```bash
-# Check memory usage
-free -h
-
-# Close unnecessary applications
-sudo systemctl stop bluetooth
-sudo systemctl stop avahi-daemon
-
-# Increase swap if needed
-sudo dphys-swapfile swapoff
-sudo nano /etc/dphys-swapfile
-# Set CONF_SWAPSIZE=1024
-sudo dphys-swapfile setup
-sudo dphys-swapfile swapon
-```
-
-### Model Loading Issues
-```bash
-# Check model file
-ls -la ../model/
-
-# Verify TFLite runtime
-python -c "import tflite_runtime; print('OK')"
-
-# Reinstall TFLite runtime
-pip uninstall tflite-runtime
-pip install https://github.com/google-coral/pycoral/releases/download/v2.0.0/tflite_runtime-2.5.0.post1-cp39-cp39-linux_armv7l.whl
-```
-
-## 📊 Performance Tips
-
-### For Better FPS (Real-time Performance)
-1. **Use Speed Mode**: `--performance-mode speed`
-2. **Lower Resolution**: Use 320x240 or 640x480
-3. **Frame Skipping**: Press '2' or '3' during detection
-4. **Higher Confidence**: Set confidence threshold to 0.6+
-5. **Use PiCamera2**: Better performance than USB cameras
-6. **Close Background Apps**: Stop unnecessary services
-7. **Reduce Display Updates**: Display updates every 2nd frame
-
-### For Better Accuracy
-1. **Good Lighting**: Ensure consistent illumination
-2. **Camera Position**: Mount camera directly above detection area
-3. **Stable Mount**: Minimize camera movement
-4. **Clean Lens**: Keep camera lens clean
-5. **Optimal Distance**: Position camera at recommended height
-
-### Performance Modes Explained
-- **Speed Mode**: Processes every 3rd frame, optimized for 10+ FPS
-- **Balanced Mode**: Processes every 2nd frame, optimized for 10-15 FPS  
-- **Quality Mode**: Processes every frame, optimized for 5-10 FPS
-
-## 🚀 Auto-start Service
-
-Enable the milk detector to start automatically on boot:
-```bash
-# Enable service
-sudo systemctl enable milk-detector.service
-
-# Start service
-sudo systemctl start milk-detector.service
-
-# Check status
-sudo systemctl status milk-detector.service
-
-# View logs
-sudo journalctl -u milk-detector.service -f
-```
-
-## 📁 File Structure
-
-```
-raspberry/
-├── raspberry_milk_detector.py    # Main detection script (OPTIMIZED)
-├── performance_monitor.py         # Performance monitoring
-├── optimize_pi.py                # Performance optimizer
-├── start_detection.sh            # Optimized startup script
-├── setup_pi.sh                   # Setup script
-├── requirements_pi.txt           # Pi-optimized dependencies
-├── README_PI.md                  # This file
-├── saved_frames/                 # Saved detection frames
-└── logs/                         # Performance logs
-```
-
-## 🎯 Quick Performance Commands
-
-### Get Real-time Performance (15+ FPS)
-```bash
-./start_detection.sh
-```
-
-### Maximum Speed (20+ FPS)
-```bash
-python raspberry_milk_detector.py --performance-mode speed --resolution 320x240 --target-fps 20
-```
-
-### Monitor Performance
-```bash
-python performance_monitor.py
-```
-
-### Optimize Settings
-```bash
-python optimize_pi.py
-```
-
-## 🆘 Still Getting Low FPS?
-
-If you're still experiencing low performance:
-
-1. **Run the optimizer**: `python optimize_pi.py`
-2. **Check system resources**: `python performance_monitor.py --summary`
-3. **Use speed mode**: `--performance-mode speed`
-4. **Lower resolution**: `--resolution 320x240`
-5. **Enable frame skipping**: Press '2' or '3' during detection
-6. **Check temperature**: Ensure Pi is not throttling due to heat
-7. **Close background apps**: Stop unnecessary services
-8. **Use PiCamera2**: Better than USB cameras
-
-The optimizations should get you from 0.8 FPS to 15+ FPS for real-time performance! 

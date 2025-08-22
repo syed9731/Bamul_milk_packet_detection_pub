@@ -46,6 +46,20 @@ class RaspberryMilkDetector:
         self.fps = 0
         self.last_time = time.time()
         
+        # CONVEYOR BELT SYNCHRONIZATION
+        self.conveyor_speed = 0.0  # meters per second
+        self.target_fps = 15
+        self.adaptive_processing = True
+        self.speed_detection_enabled = True
+        self.production_line_mode = False
+        
+        # Speed detection parameters
+        self.speed_detection_frames = []
+        self.speed_detection_timestamps = []
+        self.last_detection_positions = []
+        self.conveyor_width = 0.5  # meters (adjustable)
+        self.pixel_to_meter_ratio = 1.0  # pixels per meter
+        
         # Load TFLite model
         self.interpreter = tflite.Interpreter(model_path=model_path)
         
@@ -262,6 +276,153 @@ class RaspberryMilkDetector:
         self.frame_skip_interval = max(1, interval)
         print(f"Frame skip interval set to {self.frame_skip_interval}")
     
+    def set_conveyor_speed(self, speed_mps):
+        """
+        Set conveyor belt speed in meters per second
+        
+        Args:
+            speed_mps: Speed in meters per second
+        """
+        self.conveyor_speed = speed_mps
+        print(f"Conveyor speed set to {speed_mps:.2f} m/s")
+        
+        # Auto-adjust frame skip based on conveyor speed
+        if speed_mps > 0:
+            # Calculate required FPS to match conveyor speed
+            # Assuming we need to detect objects every 0.1 meters
+            required_fps = speed_mps / 0.1
+            self.target_fps = min(30, max(5, required_fps))
+            
+            if required_fps > 20:
+                self.frame_skip_interval = 3
+                print(f"High speed detected: Processing every 3rd frame")
+            elif required_fps > 15:
+                self.frame_skip_interval = 2
+                print(f"Medium speed detected: Processing every 2nd frame")
+            else:
+                self.frame_skip_interval = 1
+                print(f"Low speed detected: Processing every frame")
+    
+    def detect_conveyor_speed(self, detections, frame_width, frame_height):
+        """
+        Automatically detect conveyor belt speed from object movement
+        
+        Args:
+            detections: List of detections from current frame
+            frame_width: Frame width in pixels
+            frame_height: Frame height in pixels
+        """
+        if not self.speed_detection_enabled or not detections:
+            return
+        
+        current_time = time.time()
+        
+        # Store detection positions and timestamps
+        for detection in detections:
+            x1, y1, x2, y2, confidence, class_id = detection
+            center_x = (x1 + x2) / 2
+            center_y = (y1 + y2) / 2
+            
+            self.speed_detection_frames.append({
+                'timestamp': current_time,
+                'center_x': center_x,
+                'center_y': center_y,
+                'confidence': confidence
+            })
+        
+        # Keep only recent detections (last 5 seconds)
+        cutoff_time = current_time - 5.0
+        self.speed_detection_frames = [
+            f for f in self.speed_detection_frames 
+            if f['timestamp'] > cutoff_time
+        ]
+        
+        # Calculate speed if we have enough data
+        if len(self.speed_detection_frames) >= 3:
+            # Find objects moving horizontally (conveyor direction)
+            horizontal_movements = []
+            
+            for i in range(1, len(self.speed_detection_frames)):
+                prev_frame = self.speed_detection_frames[i-1]
+                curr_frame = self.speed_detection_frames[i]
+                
+                time_diff = curr_frame['timestamp'] - prev_frame['timestamp']
+                x_diff = curr_frame['center_x'] - prev_frame['center_x']
+                y_diff = curr_frame['center_y'] - prev_frame['center_y']
+                
+                # Only consider horizontal movement (conveyor direction)
+                if abs(x_diff) > abs(y_diff) and time_diff > 0:
+                    # Convert pixels to meters and calculate speed
+                    distance_m = abs(x_diff) / self.pixel_to_meter_ratio
+                    speed_mps = distance_m / time_diff
+                    
+                    if 0.01 < speed_mps < 10.0:  # Reasonable speed range
+                        horizontal_movements.append(speed_mps)
+            
+            if horizontal_movements:
+                # Calculate average speed
+                avg_speed = sum(horizontal_movements) / len(horizontal_movements)
+                self.conveyor_speed = avg_speed
+                
+                # Auto-adjust processing based on detected speed
+                if self.adaptive_processing:
+                    self.auto_adjust_processing()
+    
+    def auto_adjust_processing(self):
+        """
+        Automatically adjust processing parameters based on conveyor speed
+        """
+        if self.conveyor_speed <= 0:
+            return
+        
+        # Calculate required detection frequency
+        # We want to detect objects every 0.1 meters on the conveyor
+        required_detection_freq = self.conveyor_speed / 0.1
+        
+        # Adjust frame skip interval
+        if required_detection_freq > 25:
+            new_interval = 3
+        elif required_detection_freq > 15:
+            new_interval = 2
+        else:
+            new_interval = 1
+        
+        if new_interval != self.frame_skip_interval:
+            self.frame_skip_interval = new_interval
+            print(f"Auto-adjusted: Processing every {new_interval} frame(s) for {self.conveyor_speed:.2f} m/s conveyor")
+        
+        # Adjust confidence threshold based on speed
+        if self.conveyor_speed > 2.0:  # High speed
+            if self.confidence_threshold < 0.7:
+                self.confidence_threshold = 0.7
+                print(f"Auto-adjusted confidence threshold to {self.confidence_threshold} for high speed")
+        elif self.conveyor_speed > 1.0:  # Medium speed
+            if self.confidence_threshold < 0.6:
+                self.confidence_threshold = 0.6
+                print(f"Auto-adjusted confidence threshold to {self.confidence_threshold} for medium speed")
+    
+    def enable_production_line_mode(self, conveyor_width_m=0.5, target_detection_gap_m=0.1):
+        """
+        Enable production line mode for conveyor belt synchronization
+        
+        Args:
+            conveyor_width_m: Width of conveyor belt in meters
+            target_detection_gap_m: Target gap between detections in meters
+        """
+        self.production_line_mode = True
+        self.conveyor_width = conveyor_width_m
+        self.adaptive_processing = True
+        self.speed_detection_enabled = True
+        
+        # Calculate pixel-to-meter ratio based on camera setup
+        # This should be calibrated for your specific camera position
+        self.pixel_to_meter_ratio = 1000.0  # pixels per meter (adjustable)
+        
+        print(f"Production line mode enabled:")
+        print(f"  Conveyor width: {conveyor_width_m} m")
+        print(f"  Target detection gap: {target_detection_gap_m} m")
+        print(f"  Pixel-to-meter ratio: {self.pixel_to_meter_ratio:.1f} px/m")
+    
     def optimize_for_performance(self, target_fps=15):
         """
         Automatically optimize settings for target FPS
@@ -303,10 +464,21 @@ class RaspberryMilkDetector:
                 count_text = f"Milk Packets: {len(self.last_detections)}"
                 cv2.putText(result_frame, count_text, (10, 70), 
                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                
+                # Add conveyor speed info
+                if self.production_line_mode and self.conveyor_speed > 0:
+                    speed_text = f"Conveyor: {self.conveyor_speed:.2f} m/s | Frame Skip: {self.frame_skip_interval}"
+                    cv2.putText(result_frame, speed_text, (10, 110), 
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
+                
                 return result_frame, self.last_detections
         
         # Run detection
         detections = self.detect(frame)
+        
+        # CONVEYOR BELT SYNCHRONIZATION: Detect speed from object movement
+        if self.production_line_mode and self.speed_detection_enabled:
+            self.detect_conveyor_speed(detections, frame.shape[1], frame.shape[0])
         
         # Store detections for frame skipping
         self.last_detections = detections
@@ -324,7 +496,43 @@ class RaspberryMilkDetector:
         cv2.putText(result_frame, count_text, (10, 70), 
                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
         
+        # Add conveyor speed info
+        if self.production_line_mode:
+            if self.conveyor_speed > 0:
+                speed_text = f"Conveyor: {self.conveyor_speed:.2f} m/s | Frame Skip: {self.frame_skip_interval}"
+                cv2.putText(result_frame, speed_text, (10, 110), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
+                
+                # Calculate detection coverage
+                coverage_text = f"Coverage: {self.calculate_detection_coverage(detections, frame.shape[1], frame.shape[0]):.1f}%"
+                cv2.putText(result_frame, coverage_text, (10, 140), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
+            else:
+                speed_text = "Conveyor: Detecting speed..."
+                cv2.putText(result_frame, speed_text, (10, 110), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
+        
         return result_frame, detections
+    
+    def calculate_detection_coverage(self, detections, frame_width, frame_height):
+        """
+        Calculate detection coverage percentage across the frame
+        """
+        if not detections:
+            return 0.0
+        
+        # Calculate total area covered by detections
+        total_coverage = 0
+        for detection in detections:
+            x1, y1, x2, y2, confidence, class_id = detection
+            area = (x2 - x1) * (y2 - y1)
+            total_coverage += area
+        
+        # Calculate percentage of frame covered
+        frame_area = frame_width * frame_height
+        coverage_percent = (total_coverage / frame_area) * 100
+        
+        return min(100.0, coverage_percent)
     
     def start_camera_detection(self, camera_index=0, resolution=(640, 480), target_fps=15):
         """
@@ -337,6 +545,7 @@ class RaspberryMilkDetector:
         """
         print(f"Starting camera detection with resolution {resolution}")
         print("Press 'q' to quit, 's' to save current frame, '1/2/3' to set frame skip")
+        print("Press 'c' to toggle conveyor mode, 'v' to set conveyor speed")
         
         # PERFORMANCE OPTIMIZATION: Auto-optimize for target FPS
         self.optimize_for_performance(target_fps)
@@ -396,10 +605,30 @@ class RaspberryMilkDetector:
                     self.set_frame_skip(2)
                 elif key == ord('3'):
                     self.set_frame_skip(3)
+                elif key == ord('c'):
+                    # Toggle conveyor mode
+                    if not self.production_line_mode:
+                        self.enable_production_line_mode()
+                        print("Conveyor mode enabled")
+                    else:
+                        self.production_line_mode = False
+                        self.speed_detection_enabled = False
+                        print("Conveyor mode disabled")
+                elif key == ord('v'):
+                    # Set conveyor speed manually
+                    try:
+                        speed_input = input("Enter conveyor speed (m/s): ")
+                        speed = float(speed_input)
+                        self.set_conveyor_speed(speed)
+                    except (ValueError, EOFError):
+                        print("Invalid speed value")
                 
                 # Print detection info every 30 frames
                 if self.frame_count % 30 == 0:
-                    print(f"FPS: {self.fps:.1f}, Detections: {len(detections)}, Frame Skip: {self.frame_skip_interval}")
+                    status = f"FPS: {self.fps:.1f}, Detections: {len(detections)}, Frame Skip: {self.frame_skip_interval}"
+                    if self.production_line_mode:
+                        status += f", Conveyor: {self.conveyor_speed:.2f} m/s"
+                    print(status)
                 
         except KeyboardInterrupt:
             print("\nInterrupted by user")
@@ -428,6 +657,7 @@ class RaspberryMilkDetector:
         
         print(f"Starting PiCamera2 detection with resolution {resolution}")
         print("Press 'q' to quit, 's' to save current frame, '1/2/3' to set frame skip")
+        print("Press 'c' to toggle conveyor mode, 'v' to set conveyor speed")
         
         # PERFORMANCE OPTIMIZATION: Auto-optimize for target FPS
         self.optimize_for_performance(target_fps)
@@ -486,10 +716,30 @@ class RaspberryMilkDetector:
                     self.set_frame_skip(2)
                 elif key == ord('3'):
                     self.set_frame_skip(3)
+                elif key == ord('c'):
+                    # Toggle conveyor mode
+                    if not self.production_line_mode:
+                        self.enable_production_line_mode()
+                        print("Conveyor mode enabled")
+                    else:
+                        self.production_line_mode = False
+                        self.speed_detection_enabled = False
+                        print("Conveyor mode disabled")
+                elif key == ord('v'):
+                    # Set conveyor speed manually
+                    try:
+                        speed_input = input("Enter conveyor speed (m/s): ")
+                        speed = float(speed_input)
+                        self.set_conveyor_speed(speed)
+                    except (ValueError, EOFError):
+                        print("Invalid speed value")
                 
                 # Print detection info every 30 frames
                 if self.frame_count % 30 == 0:
-                    print(f"FPS: {self.fps:.1f}, Detections: {len(detections)}, Frame Skip: {self.frame_skip_interval}")
+                    status = f"FPS: {self.fps:.1f}, Detections: {len(detections)}, Frame Skip: {self.frame_skip_interval}"
+                    if self.production_line_mode:
+                        status += f", Conveyor: {self.conveyor_speed:.2f} m/s"
+                    print(status)
                 
         except KeyboardInterrupt:
             print("\nInterrupted by user")
@@ -522,6 +772,12 @@ def main():
                        help="Target FPS for performance optimization (default: 15)")
     parser.add_argument("--performance-mode", choices=["quality", "balanced", "speed"], default="balanced",
                        help="Performance mode: quality (best accuracy), balanced (default), speed (best FPS)")
+    parser.add_argument("--conveyor-mode", action="store_true",
+                       help="Enable conveyor belt synchronization mode")
+    parser.add_argument("--conveyor-speed", type=float, default=0.0,
+                       help="Set conveyor belt speed in m/s (0 = auto-detect)")
+    parser.add_argument("--conveyor-width", type=float, default=0.5,
+                       help="Conveyor belt width in meters (default: 0.5)")
     
     args = parser.parse_args()
     
@@ -555,6 +811,17 @@ def main():
         detector.optimize_for_performance(args.target_fps)
         print("Performance mode: BALANCED")
     
+    # CONVEYOR BELT SYNCHRONIZATION: Enable if requested
+    if args.conveyor_mode:
+        detector.enable_production_line_mode(args.conveyor_width)
+        print(f"Conveyor mode enabled with width: {args.conveyor_width}m")
+        
+        if args.conveyor_speed > 0:
+            detector.set_conveyor_speed(args.conveyor_speed)
+            print(f"Conveyor speed set to: {args.conveyor_speed} m/s")
+        else:
+            print("Conveyor speed: Auto-detection enabled")
+    
     print("Raspberry Pi Milk Detector Started!")
     print(f"Model: {args.model}")
     print(f"Resolution: {resolution}")
@@ -562,6 +829,11 @@ def main():
     print(f"Confidence threshold: {args.confidence}")
     print(f"NMS threshold: {args.nms}")
     print(f"Frame skip interval: {detector.frame_skip_interval}")
+    
+    if args.conveyor_mode:
+        print(f"Conveyor mode: ENABLED")
+        print(f"Conveyor width: {args.conveyor_width}m")
+        print(f"Speed detection: {'Manual' if args.conveyor_speed > 0 else 'Auto'}")
     
     try:
         if args.use_picamera2:
