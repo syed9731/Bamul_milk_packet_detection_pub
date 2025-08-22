@@ -12,7 +12,7 @@ class DetectionConfig:
     
     def __init__(self):
         # Model Configuration
-        self.MODEL_PATH = "../model/best_float32.tflite"
+        self.MODEL_PATH = "model/best_float32.tflite"
         self.MODEL_INPUT_SIZE = (640, 640)  # (width, height)
         
         # Detection Thresholds
