@@ -540,7 +540,7 @@ class RaspberryMilkDetector:
         # Add minimal info overlay (only essential text)
         if self.frame_count % 2 == 0:  # Update text every 2nd frame
             # Basic info
-            cv2.putText(result_frame, f"Det: {len(detections)} | FPS: {self.fps:.1f}", 
+            cv2.putText(result_frame, f"Det: {len(detections)} | FPS: {int(self.fps)}", 
                        (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
             
             # Conveyor info (only if enabled)
@@ -676,7 +676,7 @@ class RaspberryMilkDetector:
                 
                 # Print detection info every 30 frames
                 if self.frame_count % 30 == 0:
-                    status = f"FPS: {self.fps:.1f}, Detections: {len(detections)}, Frame Skip: {self.frame_skip_interval}"
+                    status = f"FPS: {int(self.fps)}, Detections: {len(detections)}, Frame Skip: {self.frame_skip_interval}"
                     if self.production_line_mode:
                         status += f", Conveyor: {self.conveyor_speed:.2f} m/s"
                     print(status)
@@ -800,7 +800,7 @@ class RaspberryMilkDetector:
                 
                 # Print detection info every 30 frames
                 if self.frame_count % 30 == 0:
-                    status = f"FPS: {self.fps:.1f}, Detections: {len(detections)}, Frame Skip: {self.frame_skip_interval}"
+                    status = f"FPS: {int(self.fps)}, Detections: {len(detections)}, Frame Skip: {self.frame_skip_interval}"
                     if self.production_line_mode:
                         status += f", Conveyor: {self.conveyor_speed:.2f} m/s"
                     print(status)
