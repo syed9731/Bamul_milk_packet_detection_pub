@@ -91,15 +91,34 @@ def test_picamera2(resolution=(640, 480)):
         # Initialize PiCamera2
         picam2 = Picamera2()
         
-        # Configure camera
+        # Configure camera with proper color settings to fix color shifting
         config = picam2.create_preview_configuration(
-            main={"size": resolution},
-            buffer_count=4
+            main={"size": resolution, "format": "RGB888"},
+            buffer_count=4,
+            controls={
+                # Fix color shifting issues
+                "AeEnable": True,  # Enable auto-exposure
+                "AwbEnable": True,  # Enable auto white balance
+                "AeMeteringMode": 0,  # Centre-weighted metering
+                "AwbMode": 0,  # Auto white balance
+                "ColourGains": (1.0, 1.0),  # Neutral color gains
+                "ColourCorrectionMatrix": [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],  # Identity matrix
+                "AnalogueGain": 1.0,  # Neutral analog gain
+                "DigitalGain": 1.0,  # Neutral digital gain
+                "ExposureTime": 0,  # Auto exposure time
+                "Saturation": 1.0,  # Normal saturation
+                "Sharpness": 1.0,  # Normal sharpness
+                "Contrast": 1.0,  # Normal contrast
+                "Brightness": 0.0,  # Normal brightness
+            }
         )
         picam2.configure(config)
         
         # Start camera
         picam2.start()
+        
+        # Wait for camera to stabilize and apply settings
+        time.sleep(2)
         
         print(f"PiCamera2 initialized with {resolution[0]}x{resolution[1]}")
         

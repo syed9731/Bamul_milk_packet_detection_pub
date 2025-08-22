@@ -704,16 +704,35 @@ class RaspberryMilkDetector:
         # Initialize PiCamera2
         picam2 = Picamera2()
         
-        # Configure camera with performance optimizations
+        # Configure camera with performance optimizations and proper color settings
         config = picam2.create_preview_configuration(
             main={"size": resolution, "format": "RGB888"},
             buffer_count=2,  # Reduced buffer for lower latency
-            controls={"FrameDurationLimits": (int(1000000/target_fps), int(1000000/target_fps))}
+            controls={
+                "FrameDurationLimits": (int(1000000/target_fps), int(1000000/target_fps)),
+                # Fix color shifting issues
+                "AeEnable": True,  # Enable auto-exposure
+                "AwbEnable": True,  # Enable auto white balance
+                "AeMeteringMode": 0,  # Centre-weighted metering
+                "AwbMode": 0,  # Auto white balance
+                "ColourGains": (1.0, 1.0),  # Neutral color gains
+                "ColourCorrectionMatrix": [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],  # Identity matrix
+                "AnalogueGain": 1.0,  # Neutral analog gain
+                "DigitalGain": 1.0,  # Neutral digital gain
+                "ExposureTime": 0,  # Auto exposure time
+                "Saturation": 1.0,  # Normal saturation
+                "Sharpness": 1.0,  # Normal sharpness
+                "Contrast": 1.0,  # Normal contrast
+                "Brightness": 0.0,  # Normal brightness
+            }
         )
         picam2.configure(config)
         
         # Start camera
         picam2.start()
+        
+        # Wait for camera to stabilize and apply settings
+        time.sleep(2)
         
         # Create output directory for saved frames
         output_dir = Path("saved_frames")
