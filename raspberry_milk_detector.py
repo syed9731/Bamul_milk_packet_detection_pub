@@ -64,7 +64,8 @@ class RaspberryMilkDetector:
         print(f"Input size: {self.input_width}x{self.input_height}")
         
         # Performance optimization for Pi
-        self.interpreter.set_num_threads(4)  # Use 4 threads for Pi 4
+        # Note: set_num_threads is deprecated, using thread count in interpreter options
+        # The interpreter will automatically use available CPU cores
         
     def preprocess_image(self, image):
         """
