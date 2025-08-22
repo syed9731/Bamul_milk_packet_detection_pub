@@ -1,293 +1,214 @@
 #!/usr/bin/env python3
 """
-Raspberry Pi Optimization Script for Milk Detection
-Tunes system settings for optimal performance
+Raspberry Pi Performance Optimizer for Milk Detection
+Helps find optimal settings for real-time performance
 """
 
-import os
 import subprocess
+import time
+import psutil
+import os
 import sys
-import argparse
 
-class PiOptimizer:
-    def __init__(self):
-        self.optimizations = {
-            'gpu_mem': '128',
-            'over_voltage': '2',
-            'arm_freq': '1750',
-            'gpu_freq': '600',
-            'temp_limit': '70',
-            'disable_bluetooth': True,
-            'disable_wifi': False,
-            'disable_leds': True,
-            'enable_4k': False
-        }
+def check_system_info():
+    """Check Raspberry Pi system information"""
+    print("🔍 Checking Raspberry Pi System Information...")
     
-    def check_root(self):
-        """Check if running as root"""
-        if os.geteuid() != 0:
-            print("Error: This script must be run as root (use sudo)")
-            return False
-        return True
-    
-    def backup_config(self):
-        """Backup current config.txt"""
-        if os.path.exists('/boot/config.txt'):
-            backup_path = '/boot/config.txt.backup'
-            try:
-                subprocess.run(['cp', '/boot/config.txt', backup_path], check=True)
-                print(f"Config backed up to: {backup_path}")
-                return True
-            except subprocess.CalledProcessError:
-                print("Warning: Could not backup config.txt")
-                return False
-        return True
-    
-    def update_config_txt(self):
-        """Update /boot/config.txt with optimizations"""
-        config_path = '/boot/config.txt'
-        
-        if not os.path.exists(config_path):
-            print("Error: /boot/config.txt not found")
-            return False
-        
-        # Read current config
-        try:
-            with open(config_path, 'r') as f:
-                lines = f.readlines()
-        except Exception as e:
-            print(f"Error reading config.txt: {e}")
-            return False
-        
-        # Prepare new config
-        new_lines = []
-        gpu_mem_set = False
-        over_voltage_set = False
-        arm_freq_set = False
-        gpu_freq_set = False
-        temp_limit_set = False
-        
-        # Process existing lines
-        for line in lines:
-            line = line.strip()
-            if line.startswith('gpu_mem='):
-                new_lines.append(f'gpu_mem={self.optimizations["gpu_mem"]}\n')
-                gpu_mem_set = True
-            elif line.startswith('over_voltage='):
-                new_lines.append(f'over_voltage={self.optimizations["over_voltage"]}\n')
-                over_voltage_set = True
-            elif line.startswith('arm_freq='):
-                new_lines.append(f'arm_freq={self.optimizations["arm_freq"]}\n')
-                arm_freq_set = True
-            elif line.startswith('gpu_freq='):
-                new_lines.append(f'gpu_freq={self.optimizations["gpu_freq"]}\n')
-                gpu_freq_set = True
-            elif line.startswith('temp_limit='):
-                new_lines.append(f'temp_limit={self.optimizations["temp_limit"]}\n')
-            elif line.startswith('#') or line == '':
-                new_lines.append(line + '\n')
+    try:
+        # Check CPU info
+        with open('/proc/cpuinfo', 'r') as f:
+            cpu_info = f.read()
+            if 'Raspberry Pi' in cpu_info:
+                print("✅ Raspberry Pi detected")
             else:
-                new_lines.append(line + '\n')
+                print("⚠️  Not running on Raspberry Pi")
         
-        # Add missing optimizations
-        if not gpu_mem_set:
-            new_lines.append(f'gpu_mem={self.optimizations["gpu_mem"]}\n')
-        if not over_voltage_set:
-            new_lines.append(f'over_voltage={self.optimizations["over_voltage"]}\n')
-        if not arm_freq_set:
-            new_lines.append(f'arm_freq={self.optimizations["arm_freq"]}\n')
-        if not gpu_freq_set:
-            new_lines.append(f'gpu_freq={self.optimizations["gpu_freq"]}\n')
-        if not temp_limit_set:
-            new_lines.append(f'temp_limit={self.optimizations["temp_limit"]}\n')
+        # Check memory
+        memory = psutil.virtual_memory()
+        print(f"💾 RAM: {memory.total / (1024**3):.1f} GB")
         
-        # Add performance optimizations
-        new_lines.extend([
-            '# Milk Detection Optimizations\n',
-            'dtoverlay=disable-bt\n' if self.optimizations['disable_bluetooth'] else '',
-            'dtoverlay=disable-wifi\n' if self.optimizations['disable_wifi'] else '',
-            'dtparam=act_led_trigger=none\n' if self.optimizations['disable_leds'] else '',
-            'dtparam=act_led_activelow=off\n' if self.optimizations['disable_leds'] else '',
-            'dtparam=pwr_led_trigger=none\n' if self.optimizations['disable_leds'] else '',
-            'dtparam=pwr_led_activelow=off\n' if self.optimizations['disable_leds'] else '',
-            'hdmi_enable_4kp60=1\n' if self.optimizations['enable_4k'] else '',
-            'force_turbo=1\n',
-            'avoid_warnings=1\n'
-        ])
+        # Check CPU cores
+        cpu_count = psutil.cpu_count()
+        print(f"🖥️  CPU Cores: {cpu_count}")
         
-        # Write new config
+        # Check temperature
         try:
-            with open(config_path, 'w') as f:
-                f.writelines(new_lines)
-            print("Config.txt updated successfully")
-            return True
-        except Exception as e:
-            print(f"Error writing config.txt: {e}")
-            return False
+            temp = subprocess.check_output(['vcgencmd', 'measure_temp']).decode()
+            print(f"🌡️  Temperature: {temp.strip()}")
+        except:
+            print("🌡️  Temperature: Unable to read")
+            
+        # Check GPU memory
+        try:
+            gpu_mem = subprocess.check_output(['vcgencmd', 'get_mem', 'gpu']).decode()
+            print(f"🎮 GPU Memory: {gpu_mem.strip()}")
+        except:
+            print("🎮 GPU Memory: Unable to read")
+            
+    except Exception as e:
+        print(f"❌ Error checking system info: {e}")
+
+def check_camera():
+    """Check camera availability"""
+    print("\n📷 Checking Camera...")
     
-    def optimize_systemd(self):
-        """Optimize systemd services"""
-        services_to_disable = [
-            'bluetooth',
-            'avahi-daemon',
-            'triggerhappy',
-            'hciuart'
+    # Check PiCamera2
+    try:
+        import picamera2
+        print("✅ PiCamera2 available")
+    except ImportError:
+        print("❌ PiCamera2 not available")
+    
+    # Check OpenCV camera
+    try:
+        import cv2
+        cap = cv2.VideoCapture(0)
+        if cap.isOpened():
+            print("✅ OpenCV camera available")
+            cap.release()
+        else:
+            print("❌ OpenCV camera not working")
+    except:
+        print("❌ OpenCV camera error")
+    
+    # Check camera interface
+    try:
+        result = subprocess.run(['vcgencmd', 'get_camera'], capture_output=True, text=True)
+        if result.returncode == 0:
+            print(f"📹 Camera Interface: {result.stdout.strip()}")
+    except:
+        print("📹 Camera Interface: Unable to check")
+
+def check_tflite():
+    """Check TFLite runtime"""
+    print("\n🤖 Checking TFLite Runtime...")
+    
+    try:
+        import tflite_runtime.interpreter as tflite
+        print("✅ tflite-runtime available (optimized for Pi)")
+    except ImportError:
+        try:
+            import tensorflow as tf
+            print("⚠️  Using tensorflow (not optimized for Pi)")
+        except ImportError:
+            print("❌ No TFLite runtime available")
+            return False
+    return True
+
+def run_performance_test():
+    """Run performance test with different settings"""
+    print("\n🚀 Running Performance Tests...")
+    
+    test_configs = [
+        {"resolution": "320x240", "fps": 15, "mode": "speed"},
+        {"resolution": "640x480", "fps": 15, "mode": "balanced"},
+        {"resolution": "1280x720", "fps": 10, "mode": "quality"},
+    ]
+    
+    results = []
+    
+    for config in test_configs:
+        print(f"\n🧪 Testing: {config['resolution']} @ {config['fps']} FPS ({config['mode']} mode)")
+        
+        # Run detection for 10 seconds
+        cmd = [
+            "python3", "raspberry_milk_detector.py",
+            "--resolution", config["resolution"],
+            "--target-fps", str(config["fps"]),
+            "--performance-mode", config["mode"],
+            "--use-picamera2"
         ]
         
-        if self.optimizations['disable_bluetooth']:
-            for service in services_to_disable:
-                try:
-                    subprocess.run(['systemctl', 'disable', service], check=True)
-                    subprocess.run(['systemctl', 'stop', service], check=True)
-                    print(f"Disabled and stopped: {service}")
-                except subprocess.CalledProcessError:
-                    print(f"Warning: Could not disable {service}")
-    
-    def optimize_swap(self):
-        """Optimize swap settings"""
         try:
-            # Increase swap size
-            swapfile_path = '/etc/dphys-swapfile'
-            if os.path.exists(swapfile_path):
-                with open(swapfile_path, 'r') as f:
-                    content = f.read()
-                
-                # Update swap size to 1GB
-                content = content.replace('CONF_SWAPSIZE=100', 'CONF_SWAPSIZE=1024')
-                
-                with open(swapfile_path, 'w') as f:
-                    f.write(content)
-                
-                # Restart swap
-                subprocess.run(['dphys-swapfile', 'swapoff'], check=True)
-                subprocess.run(['dphys-swapfile', 'setup'], check=True)
-                subprocess.run(['dphys-swapfile', 'swapon'], check=True)
-                
-                print("Swap optimized to 1GB")
-        except Exception as e:
-            print(f"Warning: Could not optimize swap: {e}")
-    
-    def optimize_network(self):
-        """Optimize network settings"""
-        try:
-            # Optimize TCP settings
-            tcp_settings = {
-                'net.core.rmem_max': '134217728',
-                'net.core.wmem_max': '134217728',
-                'net.ipv4.tcp_rmem': '4096 87380 134217728',
-                'net.ipv4.tcp_wmem': '4096 65536 134217728',
-                'net.ipv4.tcp_congestion_control': 'bbr'
-            }
+            # Start the process
+            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             
-            for param, value in tcp_settings.items():
-                subprocess.run(['sysctl', '-w', f'{param}={value}'], check=True)
+            # Let it run for 10 seconds
+            time.sleep(10)
             
-            print("Network settings optimized")
-        except Exception as e:
-            print(f"Warning: Could not optimize network: {e}")
-    
-    def create_performance_script(self):
-        """Create performance monitoring script"""
-        script_content = '''#!/bin/bash
-# Performance monitoring script
-echo "Raspberry Pi Performance Status:"
-echo "================================="
-echo "CPU Temperature: $(vcgencmd measure_temp)"
-echo "CPU Frequency: $(vcgencmd measure_clock arm)"
-echo "GPU Frequency: $(vcgencmd measure_clock core)"
-echo "Memory: $(free -h | grep Mem | awk '{print $3"/"$2}')"
-echo "CPU Usage: $(top -bn1 | grep "Cpu(s)" | awk '{print $2}' | cut -d'%' -f1)%"
-echo "Load Average: $(uptime | awk -F'load average:' '{print $2}')"
-'''
-        
-        script_path = '/usr/local/bin/pi-status'
-        try:
-            with open(script_path, 'w') as f:
-                f.write(script_content)
+            # Terminate gracefully
+            process.terminate()
+            process.wait(timeout=5)
             
-            os.chmod(script_path, 0o755)
-            print(f"Performance script created: {script_path}")
+            print(f"✅ Test completed for {config['resolution']}")
+            results.append(config)
+            
+        except subprocess.TimeoutExpired:
+            process.kill()
+            print(f"❌ Test failed for {config['resolution']}")
         except Exception as e:
-            print(f"Warning: Could not create performance script: {e}")
+            print(f"❌ Error testing {config['resolution']}: {e}")
     
-    def print_optimizations(self):
-        """Print current optimization settings"""
-        print("\nCurrent Optimization Settings:")
-        print("==============================")
-        for key, value in self.optimizations.items():
-            print(f"{key}: {value}")
+    return results
+
+def generate_optimization_report():
+    """Generate optimization recommendations"""
+    print("\n📊 Performance Optimization Report")
+    print("=" * 50)
     
-    def apply_optimizations(self):
-        """Apply all optimizations"""
-        if not self.check_root():
-            return False
-        
-        print("Applying Raspberry Pi optimizations for milk detection...")
-        
-        # Backup current config
-        if not self.backup_config():
-            return False
-        
-        # Update config.txt
-        if not self.update_config_txt():
-            return False
-        
-        # Optimize systemd services
-        self.optimize_systemd()
-        
-        # Optimize swap
-        self.optimize_swap()
-        
-        # Optimize network
-        self.optimize_network()
-        
-        # Create performance script
-        self.create_performance_script()
-        
-        print("\nOptimizations applied successfully!")
-        print("A reboot is required for changes to take effect.")
-        print("\nTo reboot: sudo reboot")
-        
-        return True
+    print("\n🎯 Quick Wins:")
+    print("1. Use PiCamera2 instead of USB camera")
+    print("2. Lower resolution to 320x240 or 640x480")
+    print("3. Set target FPS to 15 or lower")
+    print("4. Use 'speed' performance mode")
     
-    def restore_backup(self):
-        """Restore config from backup"""
-        backup_path = '/boot/config.txt.backup'
-        if os.path.exists(backup_path):
-            try:
-                subprocess.run(['cp', backup_path, '/boot/config.txt'], check=True)
-                print("Config restored from backup")
-                return True
-            except subprocess.CalledProcessError:
-                print("Error: Could not restore config")
-                return False
-        else:
-            print("No backup found")
-            return False
+    print("\n⚙️  Recommended Settings:")
+    print("For Real-time (15+ FPS):")
+    print("  --resolution 320x240 --target-fps 15 --performance-mode speed")
+    print("\nFor Balanced (10-15 FPS):")
+    print("  --resolution 640x480 --target-fps 15 --performance-mode balanced")
+    print("\nFor Quality (5-10 FPS):")
+    print("  --resolution 1280x720 --target-fps 10 --performance-mode quality")
+    
+    print("\n🔧 System Optimizations:")
+    print("1. Close unnecessary applications")
+    print("2. Disable Bluetooth: sudo systemctl stop bluetooth")
+    print("3. Disable WiFi if using Ethernet")
+    print("4. Increase GPU memory in raspi-config")
+    print("5. Ensure adequate cooling (temperature < 70°C)")
+    
+    print("\n📱 Runtime Controls:")
+    print("Press '1' - Process every frame (best quality)")
+    print("Press '2' - Process every 2nd frame (2x faster)")
+    print("Press '3' - Process every 3rd frame (3x faster)")
+    print("Press 's' - Save current frame")
+    print("Press 'q' - Quit detection")
 
 def main():
-    parser = argparse.ArgumentParser(description="Raspberry Pi Optimizer for Milk Detection")
-    parser.add_argument("--apply", action="store_true", help="Apply optimizations")
-    parser.add_argument("--restore", action="store_true", help="Restore from backup")
-    parser.add_argument("--show", action="store_true", help="Show current settings")
+    print("🍓 Raspberry Pi Performance Optimizer")
+    print("=" * 40)
     
-    args = parser.parse_args()
+    # Check if we're in the right directory
+    if not os.path.exists("raspberry_milk_detector.py"):
+        print("❌ Error: raspberry_milk_detector.py not found in current directory")
+        print("Please run this script from the raspberry folder")
+        return
     
-    optimizer = PiOptimizer()
+    # System checks
+    check_system_info()
+    check_camera()
     
-    if args.show:
-        optimizer.print_optimizations()
-    elif args.restore:
-        optimizer.restore_backup()
-    elif args.apply:
-        optimizer.apply_optimizations()
-    else:
-        print("Raspberry Pi Optimizer for Milk Detection")
-        print("==========================================")
-        print("Use --apply to apply optimizations")
-        print("Use --restore to restore from backup")
-        print("Use --show to show current settings")
-        print("\nNote: This script must be run as root (use sudo)")
+    if not check_tflite():
+        print("\n❌ TFLite runtime not available. Please install dependencies first.")
+        print("Run: ./setup_pi.sh")
+        return
+    
+    # Ask user if they want to run performance tests
+    print("\n🧪 Would you like to run performance tests? (y/n)")
+    print("Note: This will start the detector multiple times for testing")
+    
+    try:
+        user_input = input("Run tests? (y/n): ").lower().strip()
+        if user_input in ['y', 'yes']:
+            run_performance_test()
+    except KeyboardInterrupt:
+        print("\n⏹️  Tests interrupted by user")
+    
+    # Generate recommendations
+    generate_optimization_report()
+    
+    print("\n🎉 Optimization complete!")
+    print("Use the recommended settings above to improve your FPS.")
 
 if __name__ == "__main__":
     main() 

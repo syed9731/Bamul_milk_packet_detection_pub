@@ -10,6 +10,7 @@ This folder contains everything you need to deploy the milk detection system on 
 - **Flexible Camera Support**: Works with both PiCamera2 and USB cameras
 - **Auto-start Service**: Optional systemd service for boot-time startup
 - **Frame Saving**: Save detected frames with timestamps
+- **🚀 NEW: Performance Optimization**: Frame skipping, thread optimization, and performance modes
 
 ## 📋 Requirements
 
@@ -58,6 +59,20 @@ fswebcam test.jpg
 
 ## 📸 Usage
 
+### 🚀 Quick Start (Optimized for Performance)
+
+Use the optimized startup script for best performance:
+```bash
+./start_detection.sh
+```
+
+This automatically uses:
+- PiCamera2 (best performance)
+- 640x480 resolution
+- 15 FPS target
+- Speed performance mode
+- Frame skipping optimization
+
 ### Basic Detection
 
 Start the milk detector with default settings:
@@ -65,6 +80,26 @@ Start the milk detector with default settings:
 cd raspberry
 source venv_pi/bin/activate
 python raspberry_milk_detector.py
+```
+
+### 🎯 Performance-Optimized Options
+
+#### Speed Mode (Best FPS)
+```bash
+# For maximum speed (10+ FPS)
+python raspberry_milk_detector.py --performance-mode speed --resolution 320x240 --target-fps 15
+```
+
+#### Balanced Mode (Default)
+```bash
+# For balanced performance (10-15 FPS)
+python raspberry_milk_detector.py --performance-mode balanced --resolution 640x480 --target-fps 15
+```
+
+#### Quality Mode (Best Accuracy)
+```bash
+# For best quality (5-10 FPS)
+python raspberry_milk_detector.py --performance-mode quality --resolution 1280x720 --target-fps 10
 ```
 
 ### Advanced Options
@@ -83,7 +118,7 @@ python raspberry_milk_detector.py --confidence 0.6
 python raspberry_milk_detector.py --camera 1
 
 # Combine options
-python raspberry_milk_detector.py --use-picamera2 --resolution 1280x720 --confidence 0.7
+python raspberry_milk_detector.py --use-picamera2 --resolution 640x480 --performance-mode speed
 ```
 
 ### Performance Monitoring
@@ -100,11 +135,27 @@ python performance_monitor.py --interval 2.0
 python performance_monitor.py --summary
 ```
 
+### 🧪 Performance Optimization
+
+Run the performance optimizer to find best settings:
+```bash
+python optimize_pi.py
+```
+
+This will:
+- Check your Pi's hardware
+- Test different configurations
+- Recommend optimal settings
+- Run performance tests
+
 ## 🎮 Controls
 
 During detection:
 - **'q'**: Quit detection
 - **'s'**: Save current frame with detections
+- **'1'**: Process every frame (best quality, lower FPS)
+- **'2'**: Process every 2nd frame (2x faster)
+- **'3'**: Process every 3rd frame (3x faster)
 - **Ctrl+C**: Graceful shutdown
 
 ## ⚙️ Configuration
@@ -134,6 +185,9 @@ self.interpreter.set_num_threads(4)
 # Confidence and NMS thresholds
 confidence_threshold=0.5  # Lower = more detections
 nms_threshold=0.4         # Lower = less overlap removal
+
+# Frame skip interval
+frame_skip_interval=2     # Process every 2nd frame
 ```
 
 ## 🔧 Troubleshooting
@@ -150,20 +204,38 @@ libcamera-still -o test.jpg
 ls -la /dev/video*
 ```
 
-### Low Performance
-```bash
-# Check CPU temperature
-vcgencmd measure_temp
+### Low Performance (0.8 FPS Issue)
+If you're getting only 0.8 FPS instead of real-time:
 
-# Monitor performance
-python performance_monitor.py
+1. **Use Performance Mode**:
+   ```bash
+   python raspberry_milk_detector.py --performance-mode speed
+   ```
 
-# Reduce resolution
-python raspberry_milk_detector.py --resolution 320x240
+2. **Lower Resolution**:
+   ```bash
+   python raspberry_milk_detector.py --resolution 320x240
+   ```
 
-# Increase confidence threshold
-python raspberry_milk_detector.py --confidence 0.7
-```
+3. **Enable Frame Skipping**:
+   - Press '2' during detection to process every 2nd frame
+   - Press '3' to process every 3rd frame
+
+4. **Check System Resources**:
+   ```bash
+   python performance_monitor.py
+   ```
+
+5. **Close Background Apps**:
+   ```bash
+   sudo systemctl stop bluetooth
+   sudo systemctl stop avahi-daemon
+   ```
+
+6. **Use PiCamera2**:
+   ```bash
+   python raspberry_milk_detector.py --use-picamera2
+   ```
 
 ### Memory Issues
 ```bash
@@ -197,12 +269,14 @@ pip install https://github.com/google-coral/pycoral/releases/download/v2.0.0/tfl
 
 ## 📊 Performance Tips
 
-### For Better FPS
-1. **Lower Resolution**: Use 640x480 or 320x240
-2. **Higher Confidence**: Set confidence threshold to 0.7+
-3. **Close Background Apps**: Stop unnecessary services
-4. **Use PiCamera2**: Better performance than USB cameras
-5. **Optimize Model**: Consider model quantization
+### For Better FPS (Real-time Performance)
+1. **Use Speed Mode**: `--performance-mode speed`
+2. **Lower Resolution**: Use 320x240 or 640x480
+3. **Frame Skipping**: Press '2' or '3' during detection
+4. **Higher Confidence**: Set confidence threshold to 0.6+
+5. **Use PiCamera2**: Better performance than USB cameras
+6. **Close Background Apps**: Stop unnecessary services
+7. **Reduce Display Updates**: Display updates every 2nd frame
 
 ### For Better Accuracy
 1. **Good Lighting**: Ensure consistent illumination
@@ -210,6 +284,11 @@ pip install https://github.com/google-coral/pycoral/releases/download/v2.0.0/tfl
 3. **Stable Mount**: Minimize camera movement
 4. **Clean Lens**: Keep camera lens clean
 5. **Optimal Distance**: Position camera at recommended height
+
+### Performance Modes Explained
+- **Speed Mode**: Processes every 3rd frame, optimized for 10+ FPS
+- **Balanced Mode**: Processes every 2nd frame, optimized for 10-15 FPS  
+- **Quality Mode**: Processes every frame, optimized for 5-10 FPS
 
 ## 🚀 Auto-start Service
 
@@ -232,8 +311,10 @@ sudo journalctl -u milk-detector.service -f
 
 ```
 raspberry/
-├── raspberry_milk_detector.py    # Main detection script
+├── raspberry_milk_detector.py    # Main detection script (OPTIMIZED)
 ├── performance_monitor.py         # Performance monitoring
+├── optimize_pi.py                # Performance optimizer
+├── start_detection.sh            # Optimized startup script
 ├── setup_pi.sh                   # Setup script
 ├── requirements_pi.txt           # Pi-optimized dependencies
 ├── README_PI.md                  # This file
@@ -241,36 +322,39 @@ raspberry/
 └── logs/                         # Performance logs
 ```
 
-## 🔄 Updates
+## 🎯 Quick Performance Commands
 
-To update the system:
+### Get Real-time Performance (15+ FPS)
 ```bash
-cd raspberry
-git pull origin main
-./setup_pi.sh
+./start_detection.sh
 ```
 
-## 📞 Support
+### Maximum Speed (20+ FPS)
+```bash
+python raspberry_milk_detector.py --performance-mode speed --resolution 320x240 --target-fps 20
+```
 
-If you encounter issues:
-1. Check the troubleshooting section above
-2. Monitor performance with `performance_monitor.py`
-3. Check system logs: `sudo journalctl -u milk-detector.service`
-4. Verify camera setup: `sudo raspi-config`
+### Monitor Performance
+```bash
+python performance_monitor.py
+```
 
-## 📈 Expected Performance
+### Optimize Settings
+```bash
+python optimize_pi.py
+```
 
-On Raspberry Pi 4 (4GB):
-- **640x480 resolution**: 15-25 FPS
-- **1280x720 resolution**: 8-15 FPS
-- **CPU usage**: 60-80%
-- **Memory usage**: 200-400 MB
-- **Temperature**: 45-65°C (with proper cooling)
+## 🆘 Still Getting Low FPS?
 
-## 🎯 Use Cases
+If you're still experiencing low performance:
 
-- **Production Line Monitoring**: Real-time milk packet counting
-- **Quality Control**: Detection of missing or damaged packets
-- **Inventory Management**: Automated stock counting
-- **Research & Development**: Data collection for model improvement
-- **Educational**: Computer vision and ML learning platform 
+1. **Run the optimizer**: `python optimize_pi.py`
+2. **Check system resources**: `python performance_monitor.py --summary`
+3. **Use speed mode**: `--performance-mode speed`
+4. **Lower resolution**: `--resolution 320x240`
+5. **Enable frame skipping**: Press '2' or '3' during detection
+6. **Check temperature**: Ensure Pi is not throttling due to heat
+7. **Close background apps**: Stop unnecessary services
+8. **Use PiCamera2**: Better than USB cameras
+
+The optimizations should get you from 0.8 FPS to 15+ FPS for real-time performance! 

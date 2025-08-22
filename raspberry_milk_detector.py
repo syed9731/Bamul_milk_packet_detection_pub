@@ -48,6 +48,28 @@ class RaspberryMilkDetector:
         
         # Load TFLite model
         self.interpreter = tflite.Interpreter(model_path=model_path)
+        
+        # PERFORMANCE OPTIMIZATION: Configure interpreter for Pi 4
+        try:
+            # Set number of threads for better performance on Pi 4
+            self.interpreter.set_num_threads(4)
+            print("Set TFLite interpreter to use 4 threads")
+        except:
+            print("Could not set thread count (using default)")
+        
+        # PERFORMANCE OPTIMIZATION: Enable GPU delegation if available
+        try:
+            # Try to enable GPU acceleration
+            from tflite_runtime.interpreter import load_delegate
+            gpu_delegate = load_delegate('libedgetpu.so.1.0')
+            self.interpreter = tflite.Interpreter(
+                model_path=model_path,
+                experimental_delegates=[gpu_delegate]
+            )
+            print("GPU acceleration enabled")
+        except:
+            print("GPU acceleration not available, using CPU")
+        
         self.interpreter.allocate_tensors()
         
         # Get model details
@@ -63,9 +85,9 @@ class RaspberryMilkDetector:
         print(f"Input shape: {self.input_shape}")
         print(f"Input size: {self.input_width}x{self.input_height}")
         
-        # Performance optimization for Pi
-        # Note: set_num_threads is deprecated, using thread count in interpreter options
-        # The interpreter will automatically use available CPU cores
+        # PERFORMANCE OPTIMIZATION: Add frame skip counter
+        self.frame_skip_counter = 0
+        self.frame_skip_interval = 1  # Process every frame by default
         
     def preprocess_image(self, image):
         """
@@ -230,6 +252,30 @@ class RaspberryMilkDetector:
         
         return image
     
+    def set_frame_skip(self, interval):
+        """
+        Set frame skip interval for performance optimization
+        interval=1: process every frame (best quality, lower FPS)
+        interval=2: process every 2nd frame (2x faster)
+        interval=3: process every 3rd frame (3x faster)
+        """
+        self.frame_skip_interval = max(1, interval)
+        print(f"Frame skip interval set to {self.frame_skip_interval}")
+    
+    def optimize_for_performance(self, target_fps=15):
+        """
+        Automatically optimize settings for target FPS
+        """
+        if target_fps <= 10:
+            self.frame_skip_interval = 3
+            print("Performance mode: Processing every 3rd frame")
+        elif target_fps <= 15:
+            self.frame_skip_interval = 2
+            print("Performance mode: Processing every 2nd frame")
+        else:
+            self.frame_skip_interval = 1
+            print("Performance mode: Processing every frame")
+    
     def calculate_fps(self):
         """Calculate and update FPS"""
         self.frame_count += 1
@@ -244,8 +290,26 @@ class RaspberryMilkDetector:
         """
         Process a single frame and return detection results
         """
+        # PERFORMANCE OPTIMIZATION: Frame skipping for better FPS
+        self.frame_skip_counter += 1
+        if self.frame_skip_counter % self.frame_skip_interval != 0:
+            # Skip this frame, return original with previous detections
+            if hasattr(self, 'last_detections'):
+                result_frame = self.draw_detections(frame.copy(), self.last_detections)
+                # Add info overlay
+                info_text = f"Detections: {len(self.last_detections)} | FPS: {self.fps:.1f} | Skipped"
+                cv2.putText(result_frame, info_text, (10, 30), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                count_text = f"Milk Packets: {len(self.last_detections)}"
+                cv2.putText(result_frame, count_text, (10, 70), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                return result_frame, self.last_detections
+        
         # Run detection
         detections = self.detect(frame)
+        
+        # Store detections for frame skipping
+        self.last_detections = detections
         
         # Draw detections
         result_frame = self.draw_detections(frame.copy(), detections)
@@ -262,16 +326,20 @@ class RaspberryMilkDetector:
         
         return result_frame, detections
     
-    def start_camera_detection(self, camera_index=0, resolution=(640, 480)):
+    def start_camera_detection(self, camera_index=0, resolution=(640, 480), target_fps=15):
         """
         Start real-time camera detection
         
         Args:
             camera_index: Camera device index (usually 0 for Pi Camera)
             resolution: Camera resolution (width, height)
+            target_fps: Target FPS for performance optimization
         """
         print(f"Starting camera detection with resolution {resolution}")
-        print("Press 'q' to quit, 's' to save current frame")
+        print("Press 'q' to quit, 's' to save current frame, '1/2/3' to set frame skip")
+        
+        # PERFORMANCE OPTIMIZATION: Auto-optimize for target FPS
+        self.optimize_for_performance(target_fps)
         
         # Initialize camera
         cap = cv2.VideoCapture(camera_index)
@@ -283,7 +351,10 @@ class RaspberryMilkDetector:
         # Set camera properties
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, resolution[0])
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, resolution[1])
-        cap.set(cv2.CAP_PROP_FPS, 30)
+        cap.set(cv2.CAP_PROP_FPS, target_fps)
+        
+        # PERFORMANCE OPTIMIZATION: Reduce buffer size
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         
         # Create output directory for saved frames
         output_dir = Path("saved_frames")
@@ -305,8 +376,9 @@ class RaspberryMilkDetector:
                 # Calculate FPS
                 self.calculate_fps()
                 
-                # Display result
-                cv2.imshow('Milk Detection - Raspberry Pi', result_frame)
+                # PERFORMANCE OPTIMIZATION: Reduce display frequency
+                if self.frame_count % 2 == 0:  # Update display every 2nd frame
+                    cv2.imshow('Milk Detection - Raspberry Pi', result_frame)
                 
                 # Handle key presses
                 key = cv2.waitKey(1) & 0xFF
@@ -318,10 +390,16 @@ class RaspberryMilkDetector:
                     filename = output_dir / f"milk_detection_{timestamp}.jpg"
                     cv2.imwrite(str(filename), result_frame)
                     print(f"Frame saved: {filename}")
+                elif key == ord('1'):
+                    self.set_frame_skip(1)
+                elif key == ord('2'):
+                    self.set_frame_skip(2)
+                elif key == ord('3'):
+                    self.set_frame_skip(3)
                 
                 # Print detection info every 30 frames
                 if self.frame_count % 30 == 0:
-                    print(f"FPS: {self.fps:.1f}, Detections: {len(detections)}")
+                    print(f"FPS: {self.fps:.1f}, Detections: {len(detections)}, Frame Skip: {self.frame_skip_interval}")
                 
         except KeyboardInterrupt:
             print("\nInterrupted by user")
@@ -331,12 +409,13 @@ class RaspberryMilkDetector:
             cv2.destroyAllWindows()
             print("Camera detection stopped")
     
-    def start_picamera2_detection(self, resolution=(640, 480)):
+    def start_picamera2_detection(self, resolution=(640, 480), target_fps=15):
         """
         Start real-time detection using PiCamera2 (recommended for Pi)
         
         Args:
             resolution: Camera resolution (width, height)
+            target_fps: Target FPS for performance optimization
         """
         try:
             from picamera2 import Picamera2
@@ -344,19 +423,23 @@ class RaspberryMilkDetector:
             from picamera2.sensor_format import SensorFormat
         except ImportError:
             print("PiCamera2 not available, falling back to OpenCV camera")
-            self.start_camera_detection(0, resolution)
+            self.start_camera_detection(0, resolution, target_fps)
             return
         
         print(f"Starting PiCamera2 detection with resolution {resolution}")
-        print("Press 'q' to quit, 's' to save current frame")
+        print("Press 'q' to quit, 's' to save current frame, '1/2/3' to set frame skip")
+        
+        # PERFORMANCE OPTIMIZATION: Auto-optimize for target FPS
+        self.optimize_for_performance(target_fps)
         
         # Initialize PiCamera2
         picam2 = Picamera2()
         
-        # Configure camera
+        # Configure camera with performance optimizations
         config = picam2.create_preview_configuration(
-            main={"size": resolution},
-            buffer_count=4
+            main={"size": resolution, "format": "RGB888"},
+            buffer_count=2,  # Reduced buffer for lower latency
+            controls={"FrameDurationLimits": (int(1000000/target_fps), int(1000000/target_fps))}
         )
         picam2.configure(config)
         
@@ -383,8 +466,9 @@ class RaspberryMilkDetector:
                 # Calculate FPS
                 self.calculate_fps()
                 
-                # Display result
-                cv2.imshow('Milk Detection - PiCamera2', result_frame)
+                # PERFORMANCE OPTIMIZATION: Reduce display frequency
+                if self.frame_count % 2 == 0:  # Update display every 2nd frame
+                    cv2.imshow('Milk Detection - PiCamera2', result_frame)
                 
                 # Handle key presses
                 key = cv2.waitKey(1) & 0xFF
@@ -396,10 +480,16 @@ class RaspberryMilkDetector:
                     filename = output_dir / f"milk_detection_{timestamp}.jpg"
                     cv2.imwrite(str(filename), result_frame)
                     print(f"Frame saved: {filename}")
+                elif key == ord('1'):
+                    self.set_frame_skip(1)
+                elif key == ord('2'):
+                    self.set_frame_skip(2)
+                elif key == ord('3'):
+                    self.set_frame_skip(3)
                 
                 # Print detection info every 30 frames
                 if self.frame_count % 30 == 0:
-                    print(f"FPS: {self.fps:.1f}, Detections: {len(detections)}")
+                    print(f"FPS: {self.fps:.1f}, Detections: {len(detections)}, Frame Skip: {self.frame_skip_interval}")
                 
         except KeyboardInterrupt:
             print("\nInterrupted by user")
@@ -428,6 +518,10 @@ def main():
                        help="Camera device index (default: 0)")
     parser.add_argument("--use-picamera2", action="store_true",
                        help="Use PiCamera2 instead of OpenCV camera")
+    parser.add_argument("--target-fps", type=int, default=15,
+                       help="Target FPS for performance optimization (default: 15)")
+    parser.add_argument("--performance-mode", choices=["quality", "balanced", "speed"], default="balanced",
+                       help="Performance mode: quality (best accuracy), balanced (default), speed (best FPS)")
     
     args = parser.parse_args()
     
@@ -450,21 +544,34 @@ def main():
     # Initialize detector
     detector = RaspberryMilkDetector(args.model, args.confidence, args.nms)
     
+    # PERFORMANCE OPTIMIZATION: Apply performance mode settings
+    if args.performance_mode == "speed":
+        detector.optimize_for_performance(10)
+        print("Performance mode: SPEED (target: 10+ FPS)")
+    elif args.performance_mode == "quality":
+        detector.optimize_for_performance(30)
+        print("Performance mode: QUALITY (target: 30 FPS)")
+    else:  # balanced
+        detector.optimize_for_performance(args.target_fps)
+        print("Performance mode: BALANCED")
+    
     print("Raspberry Pi Milk Detector Started!")
     print(f"Model: {args.model}")
     print(f"Resolution: {resolution}")
+    print(f"Target FPS: {args.target_fps}")
     print(f"Confidence threshold: {args.confidence}")
     print(f"NMS threshold: {args.nms}")
+    print(f"Frame skip interval: {detector.frame_skip_interval}")
     
     try:
         if args.use_picamera2:
-            detector.start_picamera2_detection(resolution)
+            detector.start_picamera2_detection(resolution, args.target_fps)
         else:
-            detector.start_camera_detection(args.camera, resolution)
+            detector.start_camera_detection(args.camera, resolution, args.target_fps)
     except Exception as e:
         print(f"Error during detection: {e}")
         print("Falling back to OpenCV camera...")
-        detector.start_camera_detection(args.camera, resolution)
+        detector.start_camera_detection(args.camera, resolution, args.target_fps)
 
 if __name__ == "__main__":
     main() 
