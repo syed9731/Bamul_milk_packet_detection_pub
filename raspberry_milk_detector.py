@@ -416,7 +416,7 @@ def signal_handler(sig, frame):
 
 def main():
     parser = argparse.ArgumentParser(description="Raspberry Pi Milk Packet Detector")
-    parser.add_argument("--model", default="../model/best_float32.tflite", 
+    parser.add_argument("--model", default="model/best_float32.tflite", 
                        help="Path to TFLite model")
     parser.add_argument("--confidence", type=float, default=0.5,
                        help="Confidence threshold (default: 0.5)")
