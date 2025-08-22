@@ -76,36 +76,46 @@ def test_opencv_camera(camera_index=0, resolution=(640, 480)):
         cap.release()
         cv2.destroyAllWindows()
 
-def test_picamera2(resolution=(640, 480)):
-    """Test PiCamera2 interface"""
+def test_picamera2(resolution=(1280, 720)):
+    """Test PiCamera2 interface (v0.3.12 compatible)"""
     print("Testing PiCamera2...")
     
     try:
         from picamera2 import Picamera2
-        from picamera2.encoders import JpegEncoder
+        print("✅ PiCamera2 imported successfully")
     except ImportError:
-        print("PiCamera2 not available")
+        print("❌ PiCamera2 not available")
         return False
     
     try:
         # Initialize PiCamera2
+        print("  Creating Picamera2 object...")
         picam2 = Picamera2()
+        print("  ✅ Picamera2 object created")
         
-        # Configure camera with minimal, widely-supported settings
+        # Configure camera with v0.3.12 compatible settings
+        print("  Creating configuration...")
         config = picam2.create_preview_configuration(
             main={"size": resolution, "format": "RGB888"},
-            buffer_count=4
-            # Remove all custom controls to avoid compatibility issues
+            buffer_count=2  # Reduced for better compatibility
         )
+        print("  ✅ Configuration created")
+        
+        # Configure camera
+        print("  Configuring camera...")
         picam2.configure(config)
+        print("  ✅ Camera configured")
         
         # Start camera
+        print("  Starting camera...")
         picam2.start()
+        print("  ✅ Camera started")
         
-        # Wait for camera to stabilize and apply settings
+        # Wait for camera to stabilize
+        print("  Waiting for camera to stabilize...")
         time.sleep(2)
         
-        print(f"PiCamera2 initialized with {resolution[0]}x{resolution[1]}")
+        print(f"✅ PiCamera2 initialized with {resolution[0]}x{resolution[1]}")
         
         # Capture a few frames
         frame_count = 0
@@ -146,14 +156,24 @@ def test_picamera2(resolution=(640, 480)):
             return True
             
         except Exception as e:
-            print(f"Error during PiCamera2 capture: {e}")
+            print(f"❌ Error during PiCamera2 capture: {e}")
             return False
         finally:
             cv2.destroyAllWindows()
             picam2.close()
+            print("  ✅ Camera closed")
             
+    except AttributeError as e:
+        if "transform" in str(e):
+            print(f"❌ Transform attribute error: {e}")
+            print("This indicates a PiCamera2 version compatibility issue.")
+            print("Try updating your system or reinstalling PiCamera2.")
+            return False
+        else:
+            print(f"❌ Attribute error: {e}")
+            return False
     except Exception as e:
-        print(f"Error initializing PiCamera2: {e}")
+        print(f"❌ Error initializing PiCamera2: {e}")
         return False
 
 def test_camera_list():
@@ -198,7 +218,7 @@ def main():
     parser.add_argument("--picamera2", action="store_true", help="Test PiCamera2")
     parser.add_argument("--list", action="store_true", help="List available cameras")
     parser.add_argument("--camera", type=int, default=0, help="Camera device index")
-    parser.add_argument("--resolution", default="640x480", help="Test resolution")
+    parser.add_argument("--resolution", default="1280x720", help="Test resolution")
     
     args = parser.parse_args()
     
