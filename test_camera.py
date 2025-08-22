@@ -96,13 +96,11 @@ def test_picamera2(resolution=(640, 480)):
             main={"size": resolution, "format": "RGB888"},
             buffer_count=4,
             controls={
-                # Fix color shifting issues
+                # Fix color shifting issues - only use widely supported controls
                 "AeEnable": True,  # Enable auto-exposure
                 "AwbEnable": True,  # Enable auto white balance
                 "AeMeteringMode": 0,  # Centre-weighted metering
                 "AwbMode": 0,  # Auto white balance
-                "ColourGains": (1.0, 1.0),  # Neutral color gains
-                "ColourCorrectionMatrix": [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],  # Identity matrix
                 "AnalogueGain": 1.0,  # Neutral analog gain
                 "DigitalGain": 1.0,  # Neutral digital gain
                 "ExposureTime": 0,  # Auto exposure time
