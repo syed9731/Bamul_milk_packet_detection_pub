@@ -1,0 +1,23 @@
+# Raspberry Pi 4 optimized requirements for milk detection
+# Lighter versions for better performance on ARM architecture
+
+# Core ML framework - use tflite-runtime for Pi (optional, will fall back to tensorflow)
+# tflite-runtime>=2.14.0
+
+# Computer vision - use opencv-python-headless for Pi (no GUI dependencies)
+opencv-python-headless>=4.8.0
+
+# Numerical computing
+numpy>=1.24.0
+
+# Image processing
+Pillow>=10.0.0
+
+# Optional: for performance monitoring
+psutil>=5.9.0
+
+# Optional: for camera interface
+picamera2>=0.3.0
+
+# Optional: for GPIO control (if needed)
+RPi.GPIO>=0.7.0 
