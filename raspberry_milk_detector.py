@@ -46,6 +46,9 @@ class RaspberryMilkDetector:
         self.fps = 0
         self.last_time = time.time()
         
+        # Camera interface tracking
+        self.using_picamera2 = False
+        
         # CONVEYOR BELT SYNCHRONIZATION
         self.conveyor_speed = 0.0  # meters per second
         self.target_fps = 15
@@ -116,9 +119,15 @@ class RaspberryMilkDetector:
         # Resize image to model input size
         resized = cv2.resize(image, (self.input_width, self.input_height))
         
-        # Convert to RGB if needed
-        if len(resized.shape) == 3 and resized.shape[2] == 3:
-            resized = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
+        # Convert color space based on camera interface
+        # OpenCV camera outputs BGR, PiCamera2 outputs RGB
+        if self.using_picamera2:
+            # PiCamera2 already outputs RGB, no conversion needed
+            pass
+        else:
+            # OpenCV camera outputs BGR, convert to RGB
+            if len(resized.shape) == 3 and resized.shape[2] == 3:
+                resized = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
         
         # Normalize to [0, 1]
         normalized = resized.astype(np.float32) / 255.0
@@ -592,6 +601,9 @@ class RaspberryMilkDetector:
         # PERFORMANCE OPTIMIZATION: Reduce buffer size
         cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         
+        # Set flag for OpenCV camera (outputs BGR)
+        self.using_picamera2 = False
+        
         # Create output directory for saved frames
         output_dir = Path("saved_frames")
         output_dir.mkdir(exist_ok=True)
@@ -723,14 +735,12 @@ class RaspberryMilkDetector:
         output_dir.mkdir(exist_ok=True)
         
         self.running = True
+        self.using_picamera2 = True # Set flag for PiCamera2
         
         try:
             while self.running:
                 # Capture frame
                 frame = picam2.capture_array()
-                
-                # Convert from RGB to BGR for OpenCV
-                frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
                 
                 # Process frame
                 result_frame, detections = self.process_frame(frame)
