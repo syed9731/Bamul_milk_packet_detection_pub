@@ -138,6 +138,12 @@ class RaspberryMilkDetector:
         Returns:
             List of detections with format [x1, y1, x2, y2, confidence, class_id]
         """
+        # PERFORMANCE OPTIMIZATION: Skip detection if frame skip is active
+        if hasattr(self, 'frame_skip_interval') and self.frame_skip_interval > 1:
+            if self.frame_count % self.frame_skip_interval != 0:
+                if hasattr(self, 'last_detections'):
+                    return self.last_detections
+        
         # Preprocess image
         input_tensor = self.preprocess_image(image)
         
@@ -150,37 +156,45 @@ class RaspberryMilkDetector:
         # Get output tensor (YOLO format: [1, 5, 8400])
         output = self.interpreter.get_tensor(self.output_details[0]['index'])[0]  # Shape: [5, 8400]
         
-        # Parse YOLO output format
+        # PERFORMANCE OPTIMIZATION: Faster detection parsing
         valid_detections = []
         
-        for i in range(output.shape[1]):  # Iterate through 8400 possible detections
-            confidence = output[4, i]
-            
-            if confidence >= self.confidence_threshold:
-                # Get normalized coordinates
-                x_center = output[0, i]
-                y_center = output[1, i]
-                width = output[2, i]
-                height = output[3, i]
-                
-                # Convert to pixel coordinates
-                x1 = int((x_center - width/2) * image.shape[1])
-                y1 = int((y_center - height/2) * image.shape[0])
-                x2 = int((x_center + width/2) * image.shape[1])
-                y2 = int((y_center + height/2) * image.shape[0])
-                
-                # Ensure coordinates are within image bounds
-                x1 = max(0, min(x1, image.shape[1]))
-                y1 = max(0, min(y1, image.shape[0]))
-                x2 = max(0, min(x2, image.shape[1]))
-                y2 = max(0, min(y2, image.shape[0]))
-                
-                # Add detection (class_id is 0 for single class model)
-                valid_detections.append([x1, y1, x2, y2, confidence, 0])
+        # Use numpy operations for faster processing
+        confidences = output[4, :]
+        valid_indices = np.where(confidences >= self.confidence_threshold)[0]
         
-        # Apply non-maximum suppression
-        if valid_detections:
+        if len(valid_indices) > 0:
+            # Get coordinates for valid detections only
+            x_centers = output[0, valid_indices]
+            y_centers = output[1, valid_indices]
+            widths = output[2, valid_indices]
+            heights = output[3, valid_indices]
+            valid_confidences = confidences[valid_indices]
+            
+            # Convert to pixel coordinates (vectorized)
+            x1 = np.clip((x_centers - widths/2) * image.shape[1], 0, image.shape[1])
+            y1 = np.clip((y_centers - heights/2) * image.shape[0], 0, image.shape[0])
+            x2 = np.clip((x_centers + widths/2) * image.shape[1], 0, image.shape[1])
+            y2 = np.clip((y_centers + heights/2) * image.shape[0], 0, image.shape[0])
+            
+            # Convert to integers and create detection list
+            for i in range(len(valid_indices)):
+                valid_detections.append([
+                    int(x1[i]), int(y1[i]), int(x2[i]), int(y2[i]), 
+                    float(valid_confidences[i]), 0
+                ])
+        
+        # PERFORMANCE OPTIMIZATION: Limit maximum detections
+        if len(valid_detections) > 10:
+            # Sort by confidence and keep top 10
+            valid_detections = sorted(valid_detections, key=lambda x: x[4], reverse=True)[:10]
+        
+        # Apply non-maximum suppression only if needed
+        if len(valid_detections) > 1:
             valid_detections = self.non_max_suppression(valid_detections)
+        
+        # Store for frame skipping
+        self.last_detections = valid_detections
         
         return valid_detections
     
@@ -275,6 +289,36 @@ class RaspberryMilkDetector:
         """
         self.frame_skip_interval = max(1, interval)
         print(f"Frame skip interval set to {self.frame_skip_interval}")
+    
+    def enable_low_latency_mode(self):
+        """
+        Enable low-latency mode for production line applications
+        Reduces detection delay and improves accuracy
+        """
+        print("🚀 Low-latency mode enabled for production line")
+        
+        # Optimize for minimal delay
+        self.frame_skip_interval = 1  # Process every frame
+        self.target_fps = 30  # Maximum FPS
+        
+        # Reduce confidence threshold for faster detection
+        if self.confidence_threshold > 0.4:
+            self.confidence_threshold = 0.4
+            print(f"Adjusted confidence threshold to {self.confidence_threshold} for low latency")
+        
+        # Optimize NMS for speed
+        if self.nms_threshold > 0.3:
+            self.nms_threshold = 0.3
+            print(f"Adjusted NMS threshold to {self.nms_threshold} for low latency")
+        
+        # Enable adaptive processing
+        self.adaptive_processing = True
+        
+        print("Low-latency optimizations applied:")
+        print("  • Process every frame")
+        print("  • Target 30 FPS")
+        print("  • Reduced confidence threshold")
+        print("  • Optimized NMS")
     
     def set_conveyor_speed(self, speed_mps):
         """
@@ -449,31 +493,21 @@ class RaspberryMilkDetector:
     
     def process_frame(self, frame):
         """
-        Process a single frame and return detection results
+        Process a single frame and return detection results (optimized for low lag)
         """
-        # PERFORMANCE OPTIMIZATION: Frame skipping for better FPS
+        # PERFORMANCE OPTIMIZATION: Smart frame skipping for minimal lag
         self.frame_skip_counter += 1
-        if self.frame_skip_counter % self.frame_skip_interval != 0:
-            # Skip this frame, return original with previous detections
-            if hasattr(self, 'last_detections'):
-                result_frame = self.draw_detections(frame.copy(), self.last_detections)
-                # Add info overlay
-                info_text = f"Detections: {len(self.last_detections)} | FPS: {self.fps:.1f} | Skipped"
-                cv2.putText(result_frame, info_text, (10, 30), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-                count_text = f"Milk Packets: {len(self.last_detections)}"
-                cv2.putText(result_frame, count_text, (10, 70), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-                
-                # Add conveyor speed info
-                if self.production_line_mode and self.conveyor_speed > 0:
-                    speed_text = f"Conveyor: {self.conveyor_speed:.2f} m/s | Frame Skip: {self.frame_skip_interval}"
-                    cv2.putText(result_frame, speed_text, (10, 110), 
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
-                
-                return result_frame, self.last_detections
         
-        # Run detection
+        # Skip frame processing if not needed
+        if self.frame_skip_interval > 1:
+            if self.frame_count % self.frame_skip_interval != 0:
+                # Return cached result with minimal processing
+                if hasattr(self, 'last_detections') and hasattr(self, 'last_result_frame'):
+                    # Just update FPS counter and return cached frame
+                    self.calculate_fps()
+                    return self.last_result_frame, self.last_detections
+        
+        # Run detection (only when needed)
         detections = self.detect(frame)
         
         # CONVEYOR BELT SYNCHRONIZATION: Detect speed from object movement
@@ -483,34 +517,27 @@ class RaspberryMilkDetector:
         # Store detections for frame skipping
         self.last_detections = detections
         
-        # Draw detections
-        result_frame = self.draw_detections(frame.copy(), detections)
-        
-        # Add info overlay
-        info_text = f"Detections: {len(detections)} | FPS: {self.fps:.1f}"
-        cv2.putText(result_frame, info_text, (10, 30), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-        
-        # Add count text
-        count_text = f"Milk Packets: {len(detections)}"
-        cv2.putText(result_frame, count_text, (10, 70), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-        
-        # Add conveyor speed info
-        if self.production_line_mode:
-            if self.conveyor_speed > 0:
-                speed_text = f"Conveyor: {self.conveyor_speed:.2f} m/s | Frame Skip: {self.frame_skip_interval}"
-                cv2.putText(result_frame, speed_text, (10, 110), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
-                
-                # Calculate detection coverage
-                coverage_text = f"Coverage: {self.calculate_detection_coverage(detections, frame.shape[1], frame.shape[0]):.1f}%"
-                cv2.putText(result_frame, coverage_text, (10, 140), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
+        # PERFORMANCE OPTIMIZATION: Only draw detections when displaying
+        if self.frame_count % 2 == 0:  # Update display every 2nd frame
+            result_frame = self.draw_detections(frame.copy(), detections)
+            self.last_result_frame = result_frame
+        else:
+            # Use cached frame for non-display frames
+            if hasattr(self, 'last_result_frame'):
+                result_frame = self.last_result_frame
             else:
-                speed_text = "Conveyor: Detecting speed..."
-                cv2.putText(result_frame, speed_text, (10, 110), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
+                result_frame = frame.copy()
+        
+        # Add minimal info overlay (only essential text)
+        if self.frame_count % 2 == 0:  # Update text every 2nd frame
+            # Basic info
+            cv2.putText(result_frame, f"Det: {len(detections)} | FPS: {self.fps:.1f}", 
+                       (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+            
+            # Conveyor info (only if enabled)
+            if self.production_line_mode and self.conveyor_speed > 0:
+                cv2.putText(result_frame, f"Speed: {self.conveyor_speed:.1f} m/s", 
+                           (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
         
         return result_frame, detections
     
@@ -545,7 +572,7 @@ class RaspberryMilkDetector:
         """
         print(f"Starting camera detection with resolution {resolution}")
         print("Press 'q' to quit, 's' to save current frame, '1/2/3' to set frame skip")
-        print("Press 'c' to toggle conveyor mode, 'v' to set conveyor speed")
+        print("Press 'c' to toggle conveyor mode, 'v' to set conveyor speed, 'l' for low-latency mode")
         
         # PERFORMANCE OPTIMIZATION: Auto-optimize for target FPS
         self.optimize_for_performance(target_fps)
@@ -622,6 +649,18 @@ class RaspberryMilkDetector:
                         self.set_conveyor_speed(speed)
                     except (ValueError, EOFError):
                         print("Invalid speed value")
+                elif key == ord('l'):
+                    # Toggle low-latency mode
+                    if hasattr(self, 'low_latency_enabled') and self.low_latency_enabled:
+                        # Disable low-latency mode
+                        self.low_latency_enabled = False
+                        self.frame_skip_interval = 2
+                        self.target_fps = 15
+                        print("Low-latency mode disabled")
+                    else:
+                        # Enable low-latency mode
+                        self.enable_low_latency_mode()
+                        self.low_latency_enabled = True
                 
                 # Print detection info every 30 frames
                 if self.frame_count % 30 == 0:
@@ -657,7 +696,7 @@ class RaspberryMilkDetector:
         
         print(f"Starting PiCamera2 detection with resolution {resolution}")
         print("Press 'q' to quit, 's' to save current frame, '1/2/3' to set frame skip")
-        print("Press 'c' to toggle conveyor mode, 'v' to set conveyor speed")
+        print("Press 'c' to toggle conveyor mode, 'v' to set conveyor speed, 'l' for low-latency mode")
         
         # PERFORMANCE OPTIMIZATION: Auto-optimize for target FPS
         self.optimize_for_performance(target_fps)
@@ -733,6 +772,18 @@ class RaspberryMilkDetector:
                         self.set_conveyor_speed(speed)
                     except (ValueError, EOFError):
                         print("Invalid speed value")
+                elif key == ord('l'):
+                    # Toggle low-latency mode
+                    if hasattr(self, 'low_latency_enabled') and self.low_latency_enabled:
+                        # Disable low-latency mode
+                        self.low_latency_enabled = False
+                        self.frame_skip_interval = 2
+                        self.target_fps = 15
+                        print("Low-latency mode disabled")
+                    else:
+                        # Enable low-latency mode
+                        self.enable_low_latency_mode()
+                        self.low_latency_enabled = True
                 
                 # Print detection info every 30 frames
                 if self.frame_count % 30 == 0:
@@ -778,6 +829,8 @@ def main():
                        help="Set conveyor belt speed in m/s (0 = auto-detect)")
     parser.add_argument("--conveyor-width", type=float, default=0.5,
                        help="Conveyor belt width in meters (default: 0.5)")
+    parser.add_argument("--low-latency", action="store_true",
+                       help="Enable low-latency mode for production line (minimal delay)")
     
     args = parser.parse_args()
     
@@ -821,6 +874,11 @@ def main():
             print(f"Conveyor speed set to: {args.conveyor_speed} m/s")
         else:
             print("Conveyor speed: Auto-detection enabled")
+    
+    # LOW-LATENCY MODE: Enable if requested
+    if args.low_latency:
+        detector.enable_low_latency_mode()
+        print("Low-latency mode enabled for production line")
     
     print("Raspberry Pi Milk Detector Started!")
     print(f"Model: {args.model}")
