@@ -51,7 +51,7 @@ class RaspberryMilkDetector:
         
         # CONVEYOR BELT SYNCHRONIZATION
         self.conveyor_speed = 0.0  # meters per second
-        self.target_fps = 15
+        self.target_fps = 60  # Changed from 15 to 60 FPS
         self.adaptive_processing = True
         self.speed_detection_enabled = True
         self.production_line_mode = False
@@ -308,7 +308,7 @@ class RaspberryMilkDetector:
         
         # Optimize for minimal delay
         self.frame_skip_interval = 1  # Process every frame
-        self.target_fps = 30  # Maximum FPS
+        self.target_fps = 60  # Changed from 30 to 60 FPS
         
         # Reduce confidence threshold for faster detection
         if self.confidence_threshold > 0.4:
@@ -325,7 +325,7 @@ class RaspberryMilkDetector:
         
         print("Low-latency optimizations applied:")
         print("  • Process every frame")
-        print("  • Target 30 FPS")
+        print("  • Target 60 FPS")  # Updated from 30 to 60
         print("  • Reduced confidence threshold")
         print("  • Optimized NMS")
     
@@ -476,19 +476,22 @@ class RaspberryMilkDetector:
         print(f"  Target detection gap: {target_detection_gap_m} m")
         print(f"  Pixel-to-meter ratio: {self.pixel_to_meter_ratio:.1f} px/m")
     
-    def optimize_for_performance(self, target_fps=15):
+    def optimize_for_performance(self, target_fps=60):  # Changed default from 15 to 60
         """
         Automatically optimize settings for target FPS
         """
-        if target_fps <= 10:
-            self.frame_skip_interval = 3
-            print("Performance mode: Processing every 3rd frame")
-        elif target_fps <= 15:
-            self.frame_skip_interval = 2
-            print("Performance mode: Processing every 2nd frame")
-        else:
+        if target_fps >= 50:  # High FPS mode (50+ FPS)
             self.frame_skip_interval = 1
-            print("Performance mode: Processing every frame")
+            print("Performance mode: HIGH FPS - Processing every frame for 50+ FPS")
+        elif target_fps >= 30:  # Medium FPS mode (30-49 FPS)
+            self.frame_skip_interval = 1
+            print("Performance mode: MEDIUM FPS - Processing every frame for 30+ FPS")
+        elif target_fps >= 15:  # Balanced mode (15-29 FPS)
+            self.frame_skip_interval = 2
+            print("Performance mode: BALANCED - Processing every 2nd frame")
+        else:  # Low FPS mode (<15 FPS)
+            self.frame_skip_interval = 3
+            print("Performance mode: LOW FPS - Processing every 3rd frame")
     
     def calculate_fps(self):
         """Calculate and update FPS"""
@@ -570,7 +573,7 @@ class RaspberryMilkDetector:
         
         return min(100.0, coverage_percent)
     
-    def start_camera_detection(self, camera_index=0, resolution=(640, 480), target_fps=15):
+    def start_camera_detection(self, camera_index=0, resolution=(640, 480), target_fps=60):  # Changed from 15 to 60
         """
         Start real-time camera detection
         
@@ -598,7 +601,7 @@ class RaspberryMilkDetector:
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, resolution[1])
         cap.set(cv2.CAP_PROP_FPS, target_fps)
         
-        # PERFORMANCE OPTIMIZATION: Reduce buffer size
+        # PERFORMANCE OPTIMIZATION: Reduce buffer size for high FPS
         cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         
         # Set flag for OpenCV camera (outputs BGR)
@@ -689,7 +692,7 @@ class RaspberryMilkDetector:
             cv2.destroyAllWindows()
             print("Camera detection stopped")
     
-    def start_picamera2_detection(self, resolution=(640, 480), target_fps=15):
+    def start_picamera2_detection(self, resolution=(640, 480), target_fps=60):  # Changed from 15 to 60
         """
         Start real-time detection using PiCamera2 (recommended for Pi)
         
@@ -719,7 +722,7 @@ class RaspberryMilkDetector:
         # Configure camera with minimal, widely-supported settings
         config = picam2.create_preview_configuration(
             main={"size": resolution, "format": "RGB888"},
-            buffer_count=2  # Reduced buffer for lower latency
+            buffer_count=1  # Reduced buffer for lower latency at high FPS
             # Remove custom controls to avoid compatibility issues
         )
         picam2.configure(config)
@@ -832,8 +835,8 @@ def main():
                        help="Camera device index (default: 0)")
     parser.add_argument("--use-picamera2", action="store_true",
                        help="Use PiCamera2 instead of OpenCV camera")
-    parser.add_argument("--target-fps", type=int, default=15,
-                       help="Target FPS for performance optimization (default: 15)")
+    parser.add_argument("--target-fps", type=int, default=60,  # Changed from 15 to 60
+                       help="Target FPS for performance optimization (default: 60)")
     parser.add_argument("--performance-mode", choices=["quality", "balanced", "speed"], default="balanced",
                        help="Performance mode: quality (best accuracy), balanced (default), speed (best FPS)")
     parser.add_argument("--conveyor-mode", action="store_true",
@@ -868,11 +871,11 @@ def main():
     
     # PERFORMANCE OPTIMIZATION: Apply performance mode settings
     if args.performance_mode == "speed":
-        detector.optimize_for_performance(10)
-        print("Performance mode: SPEED (target: 10+ FPS)")
+        detector.optimize_for_performance(60)  # Changed from 10 to 60
+        print("Performance mode: SPEED (target: 60 FPS)")
     elif args.performance_mode == "quality":
-        detector.optimize_for_performance(30)
-        print("Performance mode: QUALITY (target: 30 FPS)")
+        detector.optimize_for_performance(60)  # Changed from 30 to 60
+        print("Performance mode: QUALITY (target: 60 FPS)")
     else:  # balanced
         detector.optimize_for_performance(args.target_fps)
         print("Performance mode: BALANCED")
