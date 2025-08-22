@@ -60,16 +60,6 @@ class RaspberryMilkDetector:
         self.conveyor_width = 0.5  # meters (adjustable)
         self.pixel_to_meter_ratio = 1.0  # pixels per meter
         
-        # COUNTING LINE FEATURE
-        self.counting_line_enabled = False
-        self.counting_line_y = 0  # Y position of counting line (pixels)
-        self.counting_line_threshold = 30  # Pixels threshold for line crossing
-        self.packet_count = 0  # Total packets counted
-        self.tracked_packets = {}  # Dictionary to track packet positions
-        self.packet_id_counter = 0  # Unique ID for each packet
-        self.crossed_packets = set()  # Set of packets that have crossed the line
-        self.counting_line_color = (0, 255, 255)  # Cyan color for counting line
-        
         # Load TFLite model
         self.interpreter = tflite.Interpreter(model_path=model_path)
         
@@ -265,20 +255,6 @@ class RaspberryMilkDetector:
         """
         Draw detection boxes and labels on the image (optimized for Pi)
         """
-        # Draw counting line if enabled
-        if self.counting_line_enabled:
-            # Draw horizontal counting line
-            cv2.line(image, (0, self.counting_line_y), (image.shape[1], self.counting_line_y), 
-                     self.counting_line_color, 3)
-            
-            # Add counting line label
-            cv2.putText(image, "COUNTING LINE", (10, self.counting_line_y - 20), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, self.counting_line_color, 2)
-            
-            # Draw packet count
-            cv2.putText(image, f"Packets: {self.packet_count}", (10, self.counting_line_y + 30), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
-        
         # Draw bounding boxes and labels
         for i, detection in enumerate(detections):
             x1, y1, x2, y2, confidence, class_id = detection
@@ -301,18 +277,6 @@ class RaspberryMilkDetector:
             # Draw label text
             cv2.putText(image, label, (label_x, label_y - 5), 
                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
-        
-        # Draw packet tracking information if counting line is enabled
-        if self.counting_line_enabled:
-            # Draw active packet positions
-            for packet_id, packet_data in self.tracked_packets.items():
-                if packet_id not in self.crossed_packets:  # Only show uncounted packets
-                    x, y = packet_data['position']
-                    # Draw packet center point
-                    cv2.circle(image, (int(x), int(y)), 5, (255, 0, 255), -1)
-                    # Draw packet ID
-                    cv2.putText(image, f"#{packet_id}", (int(x) + 10, int(y) - 10), 
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 0, 255), 1)
         
         return image
     
@@ -503,164 +467,6 @@ class RaspberryMilkDetector:
         print(f"  Target detection gap: {target_detection_gap_m} m")
         print(f"  Pixel-to-meter ratio: {self.pixel_to_meter_ratio:.1f} px/m")
     
-    def enable_counting_line(self, line_position_percent=50):
-        """
-        Enable counting line mode for packet counting
-        
-        Args:
-            line_position_percent: Position of counting line as percentage of frame height (0-100)
-        """
-        self.counting_line_enabled = True
-        self.counting_line_y = int(line_position_percent * 0.01 * 480)  # Default height 480
-        self.packet_count = 0
-        self.tracked_packets.clear()
-        self.crossed_packets.clear()
-        self.packet_id_counter = 0
-        
-        print(f"Counting line enabled at {line_position_percent}% of frame height")
-        print(f"Line position: Y = {self.counting_line_y} pixels")
-        print("Packets crossing this line will be counted")
-    
-    def set_counting_line_position(self, y_position):
-        """
-        Set the Y position of the counting line in pixels
-        
-        Args:
-            y_position: Y coordinate in pixels (0 = top, height = bottom)
-        """
-        self.counting_line_y = max(0, y_position)
-        print(f"Counting line position set to Y = {self.counting_line_y} pixels")
-    
-    def track_packets(self, detections, frame_height):
-        """
-        Track packets across frames and count those crossing the counting line
-        
-        Args:
-            detections: List of detections from current frame
-            frame_height: Height of the frame in pixels
-        """
-        if not self.counting_line_enabled:
-            return
-        
-        current_packet_positions = {}
-        
-        # Process each detection in current frame
-        for detection in detections:
-            x1, y1, x2, y2, confidence, class_id = detection
-            center_x = (x1 + x2) / 2
-            center_y = (y1 + y2) / 2
-            
-            # Find closest existing packet or create new one
-            closest_packet_id = None
-            min_distance = float('inf')
-            
-            for packet_id, packet_data in self.tracked_packets.items():
-                if packet_id not in self.crossed_packets:  # Only track uncounted packets
-                    last_center_x, last_center_y = packet_data['position']
-                    distance = ((center_x - last_center_x) ** 2 + (center_y - last_center_y) ** 2) ** 0.5
-                    
-                    # If packet is close enough, consider it the same packet
-                    if distance < 100:  # 100 pixel threshold for same packet
-                        if distance < min_distance:
-                            min_distance = distance
-                            closest_packet_id = packet_id
-            
-            if closest_packet_id is not None:
-                # Update existing packet position
-                self.tracked_packets[closest_packet_id]['position'] = (center_x, center_y)
-                self.tracked_packets[closest_packet_id]['last_seen'] = self.frame_count
-                current_packet_positions[closest_packet_id] = (center_x, center_y)
-                
-                # Check if packet crossed the counting line
-                last_y = self.tracked_packets[closest_packet_id]['last_y']
-                if self.has_crossed_line(last_y, center_y):
-                    self.count_packet_crossing(closest_packet_id)
-            else:
-                # Create new packet
-                new_packet_id = self.packet_id_counter
-                self.packet_id_counter += 1
-                self.tracked_packets[new_packet_id] = {
-                    'position': (center_x, center_y),
-                    'last_y': center_y,
-                    'last_seen': self.frame_count,
-                    'created_frame': self.frame_count
-                }
-                current_packet_positions[new_packet_id] = (center_x, center_y)
-        
-        # Remove old packets that haven't been seen for a while
-        current_time = self.frame_count
-        packets_to_remove = []
-        for packet_id, packet_data in self.tracked_packets.items():
-            if current_time - packet_data['last_seen'] > 30:  # Remove after 30 frames
-                packets_to_remove.append(packet_id)
-        
-        for packet_id in packets_to_remove:
-            del self.tracked_packets[packet_id]
-        
-        # Update last_y positions for next frame
-        for packet_id, packet_data in self.tracked_packets.items():
-            if packet_id in current_packet_positions:
-                packet_data['last_y'] = packet_data['position'][1]
-    
-    def has_crossed_line(self, last_y, current_y):
-        """
-        Check if a packet has crossed the counting line
-        
-        Args:
-            last_y: Previous Y position
-            current_y: Current Y position
-            
-        Returns:
-            True if packet crossed the line, False otherwise
-        """
-        # Check if packet moved from above to below the line (or vice versa)
-        # with some threshold to avoid counting small movements
-        if abs(current_y - self.counting_line_y) < self.counting_line_threshold:
-            if (last_y < self.counting_line_y and current_y > self.counting_line_y) or \
-               (last_y > self.counting_line_y and current_y < self.counting_line_y):
-                return True
-        return False
-    
-    def count_packet_crossing(self, packet_id):
-        """
-        Count a packet that has crossed the counting line
-        
-        Args:
-            packet_id: ID of the packet that crossed the line
-        """
-        if packet_id not in self.crossed_packets:
-            self.packet_count += 1
-            self.crossed_packets.add(packet_id)
-            
-            # Get packet position for display
-            if packet_id in self.tracked_packets:
-                x, y = self.tracked_packets[packet_id]['position']
-                print(f"📦 Packet #{packet_id} crossed counting line! Total count: {self.packet_count}")
-                print(f"   Position: ({x:.1f}, {y:.1f})")
-    
-    def reset_packet_count(self):
-        """Reset the packet counter"""
-        self.packet_count = 0
-        self.tracked_packets.clear()
-        self.crossed_packets.clear()
-        self.packet_id_counter = 0
-        print("Packet counter reset to 0")
-    
-    def get_counting_line_info(self):
-        """
-        Get information about the counting line
-        
-        Returns:
-            Dictionary with counting line information
-        """
-        return {
-            'enabled': self.counting_line_enabled,
-            'position': self.counting_line_y,
-            'packet_count': self.packet_count,
-            'active_packets': len(self.tracked_packets),
-            'total_packets_seen': self.packet_id_counter
-        }
-    
     def optimize_for_performance(self, target_fps=15):
         """
         Automatically optimize settings for target FPS
@@ -708,10 +514,6 @@ class RaspberryMilkDetector:
         if self.production_line_mode and self.speed_detection_enabled:
             self.detect_conveyor_speed(detections, frame.shape[1], frame.shape[0])
         
-        # COUNTING LINE FEATURE: Track packets and count crossings
-        if self.counting_line_enabled:
-            self.track_packets(detections, frame.shape[0])
-        
         # Store detections for frame skipping
         self.last_detections = detections
         
@@ -736,11 +538,6 @@ class RaspberryMilkDetector:
             if self.production_line_mode and self.conveyor_speed > 0:
                 cv2.putText(result_frame, f"Speed: {self.conveyor_speed:.1f} m/s", 
                            (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
-            
-            # Counting line info (only if enabled)
-            if self.counting_line_enabled:
-                cv2.putText(result_frame, f"Count: {self.packet_count} | Active: {len(self.tracked_packets)}", 
-                           (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
         
         return result_frame, detections
     
@@ -776,7 +573,6 @@ class RaspberryMilkDetector:
         print(f"Starting camera detection with resolution {resolution}")
         print("Press 'q' to quit, 's' to save current frame, '1/2/3' to set frame skip")
         print("Press 'c' to toggle conveyor mode, 'v' to set conveyor speed, 'l' for low-latency mode")
-        print("Press 't' to toggle counting line, 'p' to set line position, 'r' to reset counter")
         
         # PERFORMANCE OPTIMIZATION: Auto-optimize for target FPS
         self.optimize_for_performance(target_fps)
@@ -865,34 +661,12 @@ class RaspberryMilkDetector:
                         # Enable low-latency mode
                         self.enable_low_latency_mode()
                         self.low_latency_enabled = True
-                elif key == ord('t'):
-                    # Toggle counting line
-                    if self.counting_line_enabled:
-                        self.counting_line_enabled = False
-                        print("Counting line disabled")
-                    else:
-                        self.counting_line_enabled = True
-                        print("Counting line enabled")
-                elif key == ord('p'):
-                    # Set line position
-                    try:
-                        line_pos_input = input("Enter counting line position (0-100): ")
-                        line_pos = int(line_pos_input)
-                        self.set_counting_line_position(line_pos)
-                    except (ValueError, EOFError):
-                        print("Invalid line position value")
-                elif key == ord('r'):
-                    # Reset packet counter
-                    self.reset_packet_count()
-                    print("Packet counter reset to 0")
                 
                 # Print detection info every 30 frames
                 if self.frame_count % 30 == 0:
                     status = f"FPS: {self.fps:.1f}, Detections: {len(detections)}, Frame Skip: {self.frame_skip_interval}"
                     if self.production_line_mode:
                         status += f", Conveyor: {self.conveyor_speed:.2f} m/s"
-                    if self.counting_line_enabled:
-                        status += f", Counting Line: Enabled"
                     print(status)
                 
         except KeyboardInterrupt:
@@ -923,7 +697,6 @@ class RaspberryMilkDetector:
         print(f"Starting PiCamera2 detection with resolution {resolution}")
         print("Press 'q' to quit, 's' to save current frame, '1/2/3' to set frame skip")
         print("Press 'c' to toggle conveyor mode, 'v' to set conveyor speed, 'l' for low-latency mode")
-        print("Press 't' to toggle counting line, 'p' to set line position, 'r' to reset counter")
         
         # PERFORMANCE OPTIMIZATION: Auto-optimize for target FPS
         self.optimize_for_performance(target_fps)
@@ -1011,34 +784,12 @@ class RaspberryMilkDetector:
                         # Enable low-latency mode
                         self.enable_low_latency_mode()
                         self.low_latency_enabled = True
-                elif key == ord('t'):
-                    # Toggle counting line
-                    if self.counting_line_enabled:
-                        self.counting_line_enabled = False
-                        print("Counting line disabled")
-                    else:
-                        self.counting_line_enabled = True
-                        print("Counting line enabled")
-                elif key == ord('p'):
-                    # Set line position
-                    try:
-                        line_pos_input = input("Enter counting line position (0-100): ")
-                        line_pos = int(line_pos_input)
-                        self.set_counting_line_position(line_pos)
-                    except (ValueError, EOFError):
-                        print("Invalid line position value")
-                elif key == ord('r'):
-                    # Reset packet counter
-                    self.reset_packet_count()
-                    print("Packet counter reset to 0")
                 
                 # Print detection info every 30 frames
                 if self.frame_count % 30 == 0:
                     status = f"FPS: {self.fps:.1f}, Detections: {len(detections)}, Frame Skip: {self.frame_skip_interval}"
                     if self.production_line_mode:
                         status += f", Conveyor: {self.conveyor_speed:.2f} m/s"
-                    if self.counting_line_enabled:
-                        status += f", Counting Line: Enabled"
                     print(status)
                 
         except KeyboardInterrupt:
@@ -1080,10 +831,6 @@ def main():
                        help="Conveyor belt width in meters (default: 0.5)")
     parser.add_argument("--low-latency", action="store_true",
                        help="Enable low-latency mode for production line (minimal delay)")
-    parser.add_argument("--counting-line", action="store_true",
-                       help="Enable counting line mode for packet counting")
-    parser.add_argument("--line-position", type=int, default=50,
-                       help="Counting line position as percentage of frame height (0-100, default: 50)")
     
     args = parser.parse_args()
     
@@ -1127,21 +874,11 @@ def main():
             print(f"Conveyor speed set to: {args.conveyor_speed} m/s")
         else:
             print("Conveyor speed: Auto-detection enabled")
-        
-        # Auto-enable counting line for conveyor applications
-        if not args.counting_line:
-            detector.enable_counting_line(args.line_position)
-            print(f"Auto-enabled counting line for conveyor mode at {args.line_position}% of frame height")
     
     # LOW-LATENCY MODE: Enable if requested
     if args.low_latency:
         detector.enable_low_latency_mode()
         print("Low-latency mode enabled for production line")
-    
-    # COUNTING LINE FEATURE: Enable if requested
-    if args.counting_line:
-        detector.enable_counting_line(args.line_position)
-        print(f"Counting line enabled at {args.line_position}% of frame height")
     
     print("Raspberry Pi Milk Detector Started!")
     print(f"Model: {args.model}")
@@ -1155,10 +892,6 @@ def main():
         print(f"Conveyor mode: ENABLED")
         print(f"Conveyor width: {args.conveyor_width}m")
         print(f"Speed detection: {'Manual' if args.conveyor_speed > 0 else 'Auto'}")
-    
-    if args.counting_line:
-        print(f"Counting line: ENABLED")
-        print(f"Line position: {args.line_position}% of frame height")
     
     try:
         if args.use_picamera2:
